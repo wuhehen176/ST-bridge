@@ -1177,3 +1177,26 @@ test('archived session can be replaced when enabled', async () => {
     assert.equal(app.sessions.size, 2)
   } finally { await app.close() }
 })
+
+test('engine passes appendFormat=nonce to multi-message appends', async () => {
+  const app = await start()
+  try {
+    app.engine.config.appendFormat = 'nonce'
+    app.engine.config.appendNonce = 'ABCDEF12'
+    const first = await postDsh(app.base, { messages: fixedMessages(), dsh_session: dsh({ chat_id: 'append-chat', request_id: 'ap-1', action: 'generate', fixed_message_count: 2, fixed_message_types: ['prefix', 'spec'] }) })
+    assert.equal(first.response.status, 200, first.text)
+    const sessionId = first.json.dsh_session.session_id
+    const second = await postDsh(app.base, {
+      messages: [
+        ...fixedMessages(),
+        { role: 'assistant', content: 'previous answer' },
+        { role: 'user', content: 'new target' },
+      ],
+      dsh_session: dsh({ chat_id: 'append-chat', request_id: 'ap-2', action: 'generate', fixed_message_count: 2, fixed_message_types: ['prefix', 'spec'] }),
+    })
+    assert.equal(second.response.status, 200, second.text)
+    const prompt = app.sessions.get(sessionId).prompts.at(-1)
+    assert.match(prompt, /<<<STB-ABCDEF12>>>/)
+    assert.equal(prompt.includes('ST_BRIDGE_MESSAGE'), false)
+  } finally { await app.close() }
+})

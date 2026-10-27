@@ -34,6 +34,9 @@ function normalizeConfig(raw) {
   const config = raw && typeof raw === 'object' ? raw : {}
   const dshHome = process.env.DSH_HOME || join(homedir(), '.dsh')
   const host = typeof config.host === 'string' && config.host.trim() !== '' ? config.host.trim() : '127.0.0.1'
+  const appendNonce = typeof config.appendNonce === 'string'
+    ? config.appendNonce.trim().toUpperCase().replace(/^STB-/, '')
+    : ''
   return {
     host: LOCAL_HOSTS.has(host) || config.allowRemote === true ? host : '127.0.0.1',
     port: clampInteger(config.port, 0, 65535) ?? 43121,
@@ -61,6 +64,8 @@ function normalizeConfig(raw) {
     sessionOnArchived: config.sessionOnArchived === 'recreate' ? 'recreate' : 'error',
     contextOverflow: config.contextOverflow === 'recreate' ? 'recreate' : 'error',
     transientRetry: clampInteger(config.transientRetry, 0, 2) ?? 0,
+    appendFormat: config.appendFormat === 'tagged' ? 'tagged' : 'nonce',
+    appendNonce: /^[A-F0-9]{8,32}$/.test(appendNonce) ? appendNonce : '7F3A9C2E',
     allowedClientIds: Array.isArray(config.allowedClientIds) ? config.allowedClientIds.map(String) : [],
     plainCompat: {
       enabled: config.plainCompat?.enabled === true,

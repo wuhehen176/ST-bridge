@@ -121,3 +121,16 @@ test('buildKnownMessages appends the assistant answer to delta context', () => {
   assert.equal(next.at(-1).text, 'Answer')
   assert.equal(withAssistant(base, 'Answer').length, 5)
 })
+
+test('composeAppendPrompt nonce format is short and collision-resistant', () => {
+  const messages = [
+    { role: 'assistant', text: 'A_TEXT' },
+    { role: 'user', text: 'B_TEXT' },
+  ]
+  const out = composeAppendPrompt(messages, { format: 'nonce', nonce: 'ABCDEF12' })
+  assert.match(out, /<<<STB-ABCDEF12>>>/)
+  assert.equal(out.includes('ST_BRIDGE_MESSAGE'), false)
+  assert.equal(out.includes('st_bridge_append'), false)
+  assert.match(out, /角色顺序：assistant、user/)
+  assert.ok(out.length < composeAppendPrompt(messages, { format: 'tagged' }).length)
+})

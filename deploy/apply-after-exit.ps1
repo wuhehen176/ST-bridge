@@ -79,6 +79,12 @@ if (Test-Path $Settings) {
   if (-not $json.PSObject.Properties.Name.Contains('transientRetry')) {
     $json | Add-Member -NotePropertyName transientRetry -NotePropertyValue 1 -Force
   }
+  if (-not $json.PSObject.Properties.Name.Contains('appendFormat')) {
+    $json | Add-Member -NotePropertyName appendFormat -NotePropertyValue 'nonce' -Force
+  }
+  if (-not $json.PSObject.Properties.Name.Contains('appendNonce') -or -not $json.appendNonce) {
+    $json | Add-Member -NotePropertyName appendNonce -NotePropertyValue ([guid]::NewGuid().ToString('N').Substring(0, 8).ToUpper()) -Force
+  }
   # 玉子手机只能发普通 OpenAI 请求：预置兼容模式，让它归入固定 scope。
   # 已有配置只补缺失字段，避免覆盖用户改过的 chat_id。
   if ($json.PSObject.Properties.Name -contains 'plainCompat' -and $null -ne $json.plainCompat) {

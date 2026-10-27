@@ -133,6 +133,8 @@ window.__ModuleLoader__.load({
         snapshotMarker: status?.service?.snapshotDiff?.marker ?? '',
         snapshotClientsText: (status?.service?.snapshotDiff?.clients ?? ['shujuku', 'yuzi-phone']).join(','),
         snapshotDivergence: status?.service?.snapshotDiff?.onDivergence ?? 'full',
+        appendFormat: status?.service?.appendFormat ?? 'nonce',
+        appendNonce: status?.service?.appendNonce ?? '7F3A9C2E',
       }
     }
 
@@ -248,6 +250,8 @@ window.__ModuleLoader__.load({
             clients: form.snapshotClientsText.split(/[\n,]+/).map(item => item.trim()).filter(Boolean),
             onDivergence: form.snapshotDivergence === 'branch' ? 'branch' : 'full',
           },
+          appendFormat: form.appendFormat === 'tagged' ? 'tagged' : 'nonce',
+          appendNonce: form.appendNonce.trim(),
         }
         if (!Number.isInteger(payload.port) || payload.port < 1 || payload.port > 65535) {
           throw new Error('端口必须是 1-65535 的整数')
@@ -298,6 +302,12 @@ window.__ModuleLoader__.load({
         const value = await rpc('action', { action: 'rotate_snapshot_marker' })
         setForm(current => ({ ...current, snapshotMarker: value.marker, snapshotEnabled: true }))
         return `已生成新标记 ${value.marker}；旧快照已失效，请把它更新到模板。`
+      })
+
+      const rotateAppendNonce = () => run('生成追加标记', async () => {
+        const value = await rpc('action', { action: 'rotate_append_nonce' })
+        setForm(current => ({ ...current, appendNonce: value.nonce }))
+        return `已生成新的追加分隔标记 ${value.nonce}。`
       })
 
       const showLogPath = async () => {
@@ -431,6 +441,15 @@ window.__ModuleLoader__.load({
           h(Check, { checked: form.inputCleanupEnabled, onChange: value => setField('inputCleanupEnabled', value), label: '桥接侧清理 bbi_image 完整块', hint: '兜底处理绕过浏览器适配的请求；只删完整成对标签，孤立/跨消息保留并记录。' }),
           h(Field, { label: '清理标签', hint: '逗号分隔，默认 bbi_image。' },
             h('input', { className: 'bbh-input', value: form.inputCleanupTags, onChange: e => setField('inputCleanupTags', e.target.value) })),
+          h('div', { className: 'bbh-grid2' },
+            h(Field, { label: '追加包装格式', hint: 'nonce = 短分隔符；tagged = 原 ST_BRIDGE_MESSAGE。' },
+              h('input', { className: 'bbh-input', value: form.appendFormat, onChange: e => setField('appendFormat', e.target.value) })),
+            h(Field, { label: '追加分隔 nonce', hint: '8-32 位十六进制，只用于追加包装。' },
+              h('div', { className: 'bbh-actions' },
+                h('input', { className: 'bbh-input', value: form.appendNonce, onChange: e => setField('appendNonce', e.target.value) }),
+                h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => void rotateAppendNonce() }, '生成'),
+              )),
+          ),
           h('details', { className: 'bbh-fold', open: form.snapshotEnabled },
             h('summary', null, '快照差分：删除与上一轮相同的块'),
             h('p', { className: 'bbh-note' }, '用专属随机标记切块，只删开头/结尾完整相同块；没有标记或标记不配对时整段发送。'),
