@@ -113,6 +113,7 @@ token 输入框留空表示保持现有 token；点「清除」才会移除。
    `dsh.bundle.patch`，`cordis.patch.yml` 会插入同样的 preset/plugin 行。
 
 两种方式不要同时做，否则会出现重复的 `baobaohui-bridge` 行。
+`install.mjs` 检测到 profile 已把本包列为 dependency/bundle 时会直接停止，避免重复插入。
 
 换机器时：
 

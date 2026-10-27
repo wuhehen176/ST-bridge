@@ -160,6 +160,25 @@ function main() {
   if (!existsSync(profile)) throw new Error(`DSH profile 不存在: ${profile}`)
   if (!existsSync(patchFile)) throw new Error(`找不到 ${patchFile}`)
 
+  const profilePackageFile = join(profile, 'package.json')
+  if (existsSync(profilePackageFile)) {
+    let profilePackage
+    try {
+      profilePackage = JSON.parse(readFileSync(profilePackageFile, 'utf8'))
+    } catch {
+      profilePackage = undefined
+    }
+    const isBundle = Boolean(
+      profilePackage?.dependencies?.['baobaohui-bridge']
+      || profilePackage?.dsh?.profile?.bundles?.includes('baobaohui-bridge'),
+    )
+    if (isBundle) {
+      console.log('检测到 baobaohui-bridge 已作为 profile bundle 安装。')
+      console.log('不要再运行 install.mjs 的 insert 模式；请在 DSH 插件管理器或 profile package.json 中管理它。')
+      return
+    }
+  }
+
   if (args.uninstall) {
     backup(patchFile)
     const next = removeBlock(readFileSync(patchFile, 'utf8'))
