@@ -649,6 +649,27 @@ curl -s http://127.0.0.1:43121/v1/bridge/reset \
 - 如果本机还有其他用户或不可信页面，请设置 `authToken`。
 - 桥接会让本机调用方使用你的 DSH 模型账号并可能产生费用。
 
+## 发布到 GitHub
+
+本目录已经初始化为本地 Git 仓库，当前分支 `main`，**未配置 remote**，也没有执行推送。
+创建好 GitHub 仓库后：
+
+```bash
+git remote add origin https://github.com/<你的账号>/<仓库名>.git
+git push -u origin main
+git push --tags
+```
+
+当前首次提交的作者是占位身份 `baobaohui-bridge`。如需改成你自己的身份：
+
+```bash
+git config user.name "Your Name"
+git config user.email "you@example.com"
+git commit --amend --reset-author
+```
+
+仓库里不要提交 `settings.json`、`state.json`、`*.log`；`.gitignore` 已排除。
+
 ## 测试
 
 ```bash
