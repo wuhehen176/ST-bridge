@@ -272,6 +272,24 @@ DSH 设置 → ST-bridge → 服务
   失效 session_id 自动新建会话  ✔
 ```
 
+### 归档、超限与瞬时错误（0.8.0）
+
+```json
+"sessionOnArchived": "recreate",
+"contextOverflow": "recreate",
+"transientRetry": 1
+```
+
+- `sessionOnArchived`：绑定会话已归档时，不返回 409，直接新建；
+- `contextOverflow`：收到 413 `context_length_exceeded` 时，清空绑定、新建会话并重发同一请求；单轮正文本身超限仍会失败；
+- `transientRetry`：429/5xx/超时，且本轮**尚未产生 user 消息**时自动重试；最大 2 次，默认 0。
+
+安全边界：
+
+- 已有另一个有效绑定时不抢占；
+- 一旦 DSH 会话记录了本轮 user 消息，就不再重试，避免重复回合；
+- 重试使用同一个 `request_id`，幂等记录保留。
+
 ### 世界书与自定义清洗（扩展 0.3.0）
 
 在“世界书与清洗设置”选择当前客户端／聊天／任务的请求范围，勾选启用。

@@ -15,6 +15,7 @@ class MockAgent {
     this.events = []
     this.turn = 0
     this.prompts = []
+    this.failMode = null
   }
 
   followup(message) {
@@ -23,6 +24,16 @@ class MockAgent {
     const turn = ++this.turn
     setTimeout(() => {
       this.events.push({ type: 'turn/start', data: { turn } })
+      if (this.failMode === 'transient') {
+        this.failMode = null
+        this.events.push({ type: 'turn/end', data: { turn, reason: { kind: 'error', error: { code: 'rate_limit_exceeded', message: '429 rate limit' } } } })
+        return
+      }
+      if (this.failMode === 'context') {
+        this.failMode = null
+        this.events.push({ type: 'turn/end', data: { turn, reason: { kind: 'error', error: { code: 'model_error', message: 'qoder: Session blocked, Please clear context try again (406/model_error)' } } } })
+        return
+      }
       this.events.push({ type: 'user/message', data: { id: message.id, source: message.source } })
       this.events.push({
         type: 'assistant/message',
@@ -1116,5 +1127,53 @@ test('sessionOnStale does not hijack a different existing binding', async () => 
     })
     assert.equal(result.response.status, 410, result.text)
     assert.equal(result.json.error.code, 'session_gone')
+  } finally { await app.close() }
+})
+
+test('transient retry resends only when no user message was recorded', async () => {
+  const app = await start()
+  try {
+    app.engine.config.transientRetry = 1
+    const first = await postDsh(app.base, { messages: fixedMessages(), dsh_session: dsh({ chat_id: 'retry-chat', request_id: 'retry-1', action: 'generate', fixed_message_count: 2, fixed_message_types: ['prefix', 'spec'] }) })
+    assert.equal(first.response.status, 200, first.text)
+    const sessionId = first.json.dsh_session.session_id
+    const agent = app.sessions.get(sessionId)
+    const before = agent.prompts.length
+    agent.failMode = 'transient'
+    const second = await postDsh(app.base, { messages: fixedMessages(), dsh_session: dsh({ chat_id: 'retry-chat', request_id: 'retry-2', action: 'generate', fixed_message_count: 2, fixed_message_types: ['prefix', 'spec'] }) })
+    assert.equal(second.response.status, 200, second.text)
+    assert.equal(second.json.dsh_session.session_id, sessionId)
+    assert.equal(agent.prompts.length, before + 2)
+  } finally { await app.close() }
+})
+
+test('context overflow can recreate the session and retry the same input', async () => {
+  const app = await start()
+  try {
+    app.engine.config.contextOverflow = 'recreate'
+    const first = await postDsh(app.base, { messages: fixedMessages(), dsh_session: dsh({ chat_id: 'overflow-chat', request_id: 'of-1', action: 'generate', fixed_message_count: 2, fixed_message_types: ['prefix', 'spec'] }) })
+    assert.equal(first.response.status, 200, first.text)
+    const oldId = first.json.dsh_session.session_id
+    app.sessions.get(oldId).failMode = 'context'
+    const second = await postDsh(app.base, { messages: fixedMessages(), dsh_session: dsh({ chat_id: 'overflow-chat', request_id: 'of-2', action: 'generate', fixed_message_count: 2, fixed_message_types: ['prefix', 'spec'] }) })
+    assert.equal(second.response.status, 200, second.text)
+    assert.notEqual(second.json.dsh_session.session_id, oldId)
+    assert.match(second.json.dsh_session.session_id, /^session-st-/)
+    assert.equal(app.sessions.size, 2)
+  } finally { await app.close() }
+})
+
+test('archived session can be replaced when enabled', async () => {
+  const app = await start()
+  try {
+    app.engine.config.sessionOnArchived = 'recreate'
+    const first = await postDsh(app.base, { messages: fixedMessages(), dsh_session: dsh({ chat_id: 'archive-chat', request_id: 'ar-1', action: 'generate', fixed_message_count: 2, fixed_message_types: ['prefix', 'spec'] }) })
+    assert.equal(first.response.status, 200, first.text)
+    const oldId = first.json.dsh_session.session_id
+    app.host.services.workspaceRegistry.archivedSessionIds = [oldId]
+    const second = await postDsh(app.base, { messages: fixedMessages(), dsh_session: dsh({ chat_id: 'archive-chat', request_id: 'ar-2', action: 'generate', fixed_message_count: 2, fixed_message_types: ['prefix', 'spec'] }) })
+    assert.equal(second.response.status, 200, second.text)
+    assert.notEqual(second.json.dsh_session.session_id, oldId)
+    assert.equal(app.sessions.size, 2)
   } finally { await app.close() }
 })

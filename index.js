@@ -58,6 +58,9 @@ function normalizeConfig(raw) {
     allowLegacyPlain: config.allowLegacyPlain === true,
     allowRemote: config.allowRemote === true,
     sessionOnStale: config.sessionOnStale === 'recreate' ? 'recreate' : 'error',
+    sessionOnArchived: config.sessionOnArchived === 'recreate' ? 'recreate' : 'error',
+    contextOverflow: config.contextOverflow === 'recreate' ? 'recreate' : 'error',
+    transientRetry: clampInteger(config.transientRetry, 0, 2) ?? 0,
     allowedClientIds: Array.isArray(config.allowedClientIds) ? config.allowedClientIds.map(String) : [],
     plainCompat: {
       enabled: config.plainCompat?.enabled === true,
