@@ -100,6 +100,16 @@ node install.mjs --uninstall
 设置保存到 `~/.dsh/st-bridge/settings.json`（权限 0600）。界面里的
 token 输入框留空表示保持现有 token；点「清除」才会移除。
 
+## 从 baobaohui-bridge 升级
+
+旧名 `baobaohui-bridge` 已改为 **ST-bridge**：
+
+- profile 依赖/bundle 改为 `ST-bridge`；
+- 状态目录改为 `~/.dsh/st-bridge`，旧目录保留为备份；
+- 旧的 `session-bbh-*` 会话仍可通过本地绑定恢复；
+- 新会话使用 `session-st-*` 前缀；
+- API 地址、`client_id`、`chat_id`、`task_id` 协议不变。
+
 ## 分发与其他电脑
 
 这是一个 **DSH Host + Client 插件**，不是脱离 DSH 的独立服务。换电脑时整目录复制，
