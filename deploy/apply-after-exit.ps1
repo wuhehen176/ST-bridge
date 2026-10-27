@@ -67,6 +67,9 @@ if (Test-Path $Settings) {
   $json = $text | ConvertFrom-Json
   $json.authToken = ''
   $json.clearAuthToken = $true
+  if (-not $json.PSObject.Properties.Name.Contains('sessionOnStale')) {
+    $json | Add-Member -NotePropertyName sessionOnStale -NotePropertyValue 'recreate' -Force
+  }
   # 玉子手机只能发普通 OpenAI 请求：预置兼容模式，让它归入固定 scope。
   # 已有配置只补缺失字段，避免覆盖用户改过的 chat_id。
   if ($json.PSObject.Properties.Name -contains 'plainCompat' -and $null -ne $json.plainCompat) {

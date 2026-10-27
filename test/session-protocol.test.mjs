@@ -1082,3 +1082,39 @@ test('auto paragraph mode trims a database-style message without markers', async
     assert.equal(second.json.bridge.dynamic_diff.trimmed_blocks, 2)
   } finally { await app.close() }
 })
+
+test('sessionOnStale recreate ignores a stale session_id after the binding was cleared', async () => {
+  const app = await start()
+  try {
+    app.engine.config.sessionOnStale = 'recreate'
+    const result = await postDsh(app.base, {
+      messages: fixedMessages(),
+      dsh_session: dsh({
+        chat_id: 'stale-chat', request_id: 'stale-1',
+        action: 'generate', session_id: 'session-st-deadbeef',
+        fixed_message_count: 2, fixed_message_types: ['prefix', 'spec'],
+      }),
+    })
+    assert.equal(result.response.status, 200, result.text)
+    assert.notEqual(result.json.dsh_session.session_id, 'session-st-deadbeef')
+    assert.match(result.json.dsh_session.session_id, /^session-st-/)
+    assert.equal(app.sessions.size, 1)
+  } finally { await app.close() }
+})
+
+test('sessionOnStale does not hijack a different existing binding', async () => {
+  const app = await start()
+  try {
+    app.engine.config.sessionOnStale = 'recreate'
+    await postDsh(app.base, {
+      messages: fixedMessages(),
+      dsh_session: dsh({ chat_id: 'bound-chat', request_id: 'b1', action: 'generate', fixed_message_count: 2, fixed_message_types: ['prefix', 'spec'] }),
+    })
+    const result = await postDsh(app.base, {
+      messages: fixedMessages(),
+      dsh_session: dsh({ chat_id: 'bound-chat', request_id: 'b2', action: 'generate', session_id: 'session-st-other', fixed_message_count: 2, fixed_message_types: ['prefix', 'spec'] }),
+    })
+    assert.equal(result.response.status, 410, result.text)
+    assert.equal(result.json.error.code, 'session_gone')
+  } finally { await app.close() }
+})

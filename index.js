@@ -57,6 +57,7 @@ function normalizeConfig(raw) {
     allowNullOrigin: config.allowNullOrigin === true,
     allowLegacyPlain: config.allowLegacyPlain === true,
     allowRemote: config.allowRemote === true,
+    sessionOnStale: config.sessionOnStale === 'recreate' ? 'recreate' : 'error',
     allowedClientIds: Array.isArray(config.allowedClientIds) ? config.allowedClientIds.map(String) : [],
     plainCompat: {
       enabled: config.plainCompat?.enabled === true,
