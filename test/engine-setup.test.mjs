@@ -86,6 +86,27 @@ test('bridge setup strips inherited tools/contexts and injects fixed rules', asy
   assert.deepEqual(fallback.contexts, [])
 })
 
+test('earlyTurnFailure detects a policy error that has no user message event', () => {
+  const engine = engineWithPresets()
+  const events = [
+    { type: 'turn/start', data: { turn: 1 } },
+    {
+      type: 'turn/end',
+      data: {
+        turn: 1,
+        reason: {
+          kind: 'error',
+          error: { code: 'UNSUPPORTED_REASONING_EFFORT', message: 'does not support reasoning effort "max"' },
+        },
+      },
+    },
+  ]
+  const failure = engine.earlyTurnFailure(events, 0)
+  assert.equal(failure.ok, false)
+  assert.equal(failure.code, 'UNSUPPORTED_REASONING_EFFORT')
+  assert.equal(engine.earlyTurnFailure(events, 2), undefined)
+})
+
 test('turnFailure maps unsupported reasoning effort to a clear 400', () => {
   const engine = engineWithPresets()
   const error = engine.turnFailure({
