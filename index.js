@@ -37,7 +37,9 @@ function normalizeConfig(raw) {
     stateDir: typeof config.stateDir === 'string' && config.stateDir.trim() !== ''
       ? config.stateDir
       : join(dshHome, 'baobaohui-bridge'),
-    cwd: typeof config.cwd === 'string' && config.cwd.trim() !== '' ? config.cwd : process.cwd(),
+    cwd: typeof config.cwd === 'string' && config.cwd.trim() !== ''
+      ? config.cwd
+      : (process.env.DSH_CWD || process.cwd()),
     agentPreset: typeof config.agentPreset === 'string' && config.agentPreset.trim() !== ''
       ? config.agentPreset.trim()
       : 'baobaohui-bridge',
