@@ -6,6 +6,8 @@ import test from 'node:test'
 import { BridgeEngine } from '../lib/engine.js'
 import { createBridgeServer } from '../lib/server.js'
 import { BridgeStore } from '../lib/store.js'
+import { messageHash } from '../lib/context.js'
+import { adaptBody } from '../tavern-extension/core.js'
 
 class MockAgent {
   constructor(sessionId) {
@@ -132,6 +134,87 @@ async function postDsh(base, body) {
   return { response, json, text }
 }
 
+function blockedRequest(chatId, requestId, sessionId) {
+  return { model: 'dsh-default', messages: [{ role: 'user', content: 'database update' }],
+    dsh_session: dsh({ chat_id: chatId, request_id: requestId, action: 'generate',
+      session_id: sessionId, fixed_message_count: 0, fixed_message_types: [] }) }
+}
+
+function appendBlockedClaim(agent, requestId) {
+  agent.events.push({ type: 'agent/inbox/spliced', data: {
+    target: 'next-turn', start: 0,
+    inserted: [{ id: requestId, role: 'user', source: { kind: 'user', rpcId: requestId } }],
+  } })
+  const turn = ++agent.turn
+  agent.events.push({ type: 'turn/start', data: { turn } })
+  agent.events.push({ type: 'agent/inbox/spliced', data: {
+    target: 'next-turn', start: 0, removedCount: 1, inserted: [],
+  } })
+  agent.events.push({ type: 'turn/end', data: { turn, reason: { kind: 'blocked' } } })
+}
+
+test('archived session returns 409 without submitting or creating another session', async () => {
+  const app = await start()
+  try {
+    const initial = await postDsh(app.base, blockedRequest('archive-chat', 'initial'))
+    assert.equal(initial.response.status, 200)
+    const id = initial.json.dsh_session.session_id
+    const agent = app.sessions.get(id)
+    app.host.services.workspaceRegistry.archivedSessionIds = [id]
+    const result = await postDsh(app.base, blockedRequest('archive-chat', 'archived', id))
+    assert.equal(result.response.status, 409)
+    assert.equal(result.json.error.code, 'session_archived')
+    assert.equal(agent.prompts.length, 1)
+    assert.equal(app.sessions.size, 1)
+    assert.deepEqual(app.host.services.workspaceRegistry.archivedSessionIds, [id])
+  } finally { await app.close() }
+})
+
+test('blocked pre-step fails promptly, persists error, and retry does not submit again', async () => {
+  const app = await start()
+  try {
+    const initial = await postDsh(app.base, blockedRequest('blocked-chat', 'initial'))
+    assert.equal(initial.response.status, 200)
+    const id = initial.json.dsh_session.session_id
+    const agent = app.sessions.get(id)
+    agent.followup = message => {
+      agent.prompts.push('blocked attempt')
+      appendBlockedClaim(agent, message.source.rpcId)
+    }
+    app.engine.config.requestTimeoutMs = 1000
+    const request = blockedRequest('blocked-chat', 'blocked', id)
+    const result = await postDsh(app.base, request)
+    assert.equal(result.response.status, 409)
+    assert.equal(result.json.error.code, 'agent_turn_blocked')
+    const chat = app.engine.store.listChats().find(item => item.chatId === 'blocked-chat')
+    assert.equal(chat.requests.blocked.status, 'error')
+    const retry = await postDsh(app.base, request)
+    assert.equal(retry.response.status, 409)
+    assert.equal(agent.prompts.length, 2)
+  } finally { await app.close() }
+})
+
+test('pending blocked request recovers after restart and stops reporting in-progress', async () => {
+  const app = await start()
+  try {
+    const initial = await postDsh(app.base, blockedRequest('recover-chat', 'initial'))
+    assert.equal(initial.response.status, 200)
+    const id = initial.json.dsh_session.session_id
+    const agent = app.sessions.get(id)
+    appendBlockedClaim(agent, 'old-pending')
+    const chat = app.engine.store.listChats().find(item => item.chatId === 'recover-chat')
+    app.engine.store.putRequest(chat.scopeKey, 'old-pending', {
+      status: 'pending', action: 'generate', sessionId: id,
+    })
+    app.host.services.workspaceRegistry.archivedSessionIds = [id]
+    const result = await postDsh(app.base, blockedRequest('recover-chat', 'old-pending', id))
+    assert.equal(result.response.status, 409)
+    assert.equal(result.json.error.code, 'session_archived')
+    assert.equal(app.engine.store.getRequest(chat.scopeKey, 'old-pending').status, 'error')
+    assert.equal(agent.prompts.length, 1)
+  } finally { await app.close() }
+})
+
 function dsh(extra) {
   return { protocol_version: 1, ...extra }
 }
@@ -171,11 +254,15 @@ test('generate initial stores fixed rules and sends only the dynamic group', asy
     assert.match(prompt, /dynamic target/)
     assert.doesNotMatch(prompt, /PREFIX_SECRET|SPEC_SECRET|TARGET_SECRET/)
     assert.deepEqual(app.engine.runtimes.get(sessionId).fixedRules.map(rule => rule.type), ['prefix', 'spec'])
-    assert.deepEqual(result.json.usage, {
+    const { diagnostics, ...usage } = result.json.usage
+    assert.deepEqual(usage, {
       prompt_tokens: 12,
       completion_tokens: 4,
       prompt_tokens_details: { cached_tokens: 3 },
     })
+    assert.equal(diagnostics.usageEventCount, 1)
+    assert.equal(diagnostics.cacheReporting, 'reported')
+    assert.equal(Object.hasOwn(diagnostics, 'modelCallCount'), false)
   } finally {
     await app.close()
   }
@@ -647,4 +734,351 @@ test('dsh_session mode ignores stream=true and returns JSON', async () => {
   } finally {
     await app.close()
   }
+})
+
+test('context preview is read-only; scoped tiers replace rules and restore originals without branching', async () => {
+  const app = await start()
+  try {
+    const profiles = { version: 1, profiles: [{ id: 'manga-short', label: 'Manga compact', client_id: 'baibai-image', task_id: 'default', replace: { spec: 'SHORT_SPEC', check: 'SHORT_CHECK' } }] }
+    const imported = await fetch(`${app.base}/v1/bridge/context/profiles`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(profiles) })
+    assert.equal(imported.status, 200)
+    const listed = await imported.json()
+    assert.equal(JSON.stringify(listed).includes('SHORT_SPEC'), false)
+    const payload = {
+      messages: [{ role: 'system', content: 'PREFIX_KEEP' }, { role: 'system', content: 'ORIGINAL_LONG_SPEC' }, { role: 'system', content: 'EXACT_JSON_CONTRACT' }, { role: 'system', content: 'ORIGINAL_LONG_CHECK' }, { role: 'system', content: 'FULL_WORLD_MATERIAL' }, { role: 'user', content: 'EXACT_TARGET_AND_STATE' }],
+      dsh_session: dsh({ chat_id: 'tier-chat', request_id: 'tier-1', fixed_message_count: 4, fixed_message_types: ['prefix', 'spec', 'contract', 'check'] }),
+      dsh_context: { version: 1, profile_id: 'manga-short', profile_hash: listed.profiles[0].hash, sources: [] },
+    }
+    const original = JSON.stringify(payload)
+    const preview = await fetch(`${app.base}/v1/bridge/context/preview`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) })
+    const report = await preview.json()
+    assert.equal(preview.status, 200)
+    assert.equal(report.preview_only, true)
+    assert.equal(report.materials_mode, 'keep-all')
+    assert.ok(report.rule_chars_after < report.rule_chars_before)
+    assert.equal(app.sessions.size, 0)
+    assert.equal(app.engine.store.listChats().length, 0)
+    const first = await postDsh(app.base, payload)
+    assert.equal(first.response.status, 200)
+    const sid = first.json.dsh_session.session_id
+    assert.equal(first.json.bridge.context.profile_id, 'manga-short')
+    const chat = app.engine.store.getChat('tier-chat')
+    assert.deepEqual(chat.fixedRules.map(r => r.text), ['PREFIX_KEEP', 'SHORT_SPEC', 'EXACT_JSON_CONTRACT', 'SHORT_CHECK'])
+    assert.deepEqual(chat.sourceFixedRules.map(r => r.text), ['PREFIX_KEEP', 'ORIGINAL_LONG_SPEC', 'EXACT_JSON_CONTRACT', 'ORIGINAL_LONG_CHECK'])
+    assert.ok(app.sessions.get(sid).prompts[0].includes('EXACT_TARGET_AND_STATE'))
+    assert.equal(JSON.stringify(payload), original)
+    const retry = await postDsh(app.base, payload)
+    assert.equal(retry.json.bridge.idempotent, true)
+    assert.equal(retry.json.bridge.context.profile_id, 'manga-short')
+    assert.equal(app.sessions.get(sid).prompts.length, 1)
+    const reattributed = await postDsh(app.base, { ...payload, dsh_context: { ...payload.dsh_context, sources: [{ message_index: 5, start: 0, end: payload.messages[5].content.length, kind: 'target', title: 'new attribution only', message_hash: messageHash('user', payload.messages[5].content) }] } })
+    assert.equal(reattributed.response.status, 200)
+    assert.equal(reattributed.json.bridge.idempotent, true)
+    assert.equal(app.sessions.get(sid).prompts.length, 1)
+    const restore = await postDsh(app.base, { messages: [{ role: 'user', content: 'next exact target' }], dsh_session: dsh({ chat_id: 'tier-chat', session_id: sid, request_id: 'tier-2', fixed_message_count: 0, fixed_message_types: [] }), dsh_context: { version: 1, profile_id: 'original', sources: [] } })
+    assert.equal(restore.response.status, 200)
+    assert.equal(restore.json.dsh_session.session_id, sid)
+    assert.equal(app.sessions.size, 1)
+    assert.equal(app.engine.store.getChat('tier-chat').fixedRules[1].text, 'ORIGINAL_LONG_SPEC')
+    const wrongScope = await postDsh(app.base, { ...payload, dsh_session: { ...payload.dsh_session, client_id: 'shujuku', request_id: 'wrong-client' } })
+    assert.equal(wrongScope.response.status, 400)
+    assert.equal(app.sessions.size, 1)
+    const stale = await postDsh(app.base, { ...payload, dsh_context: { ...payload.dsh_context, profile_hash: '0'.repeat(64) }, dsh_session: { ...payload.dsh_session, request_id: 'stale-profile' } })
+    assert.equal(stale.response.status, 400)
+    assert.equal(app.sessions.size, 1)
+    const staticSession = { ...payload.dsh_session, request_id: undefined }
+    const autoOriginal = await postDsh(app.base, { ...payload, dsh_session: staticSession, dsh_context: { version: 1, profile_id: 'original', sources: [] } })
+    const autoShort = await postDsh(app.base, { ...payload, dsh_session: staticSession })
+    assert.equal(autoOriginal.response.status, 200)
+    assert.equal(autoShort.response.status, 200)
+    assert.notEqual(autoOriginal.json.dsh_session.request_id, autoShort.json.dsh_session.request_id)
+    assert.equal(autoShort.json.dsh_session.session_id, sid)
+    assert.equal(app.sessions.size, 1)
+  } finally { await app.close() }
+})
+
+test('a selected tier cannot guess system slots in plain database requests', async () => {
+  const app = await start()
+  try {
+    app.engine.contextProfiles.save({ version: 1, profiles: [{ id: 'db-short', label: 'Database test', client_id: 'shujuku', task_id: 'database', replace: { spec: 'SHORT' } }] })
+    const body = { messages: [{ role: 'system', content: 'JSON_TABLE_PROTOCOL' }, { role: 'user', content: 'FULL_RECORD' }], dsh_session: dsh({ client_id: 'shujuku', task_id: 'database', chat_id: 'db', request_id: 'db-1', fixed_message_count: 0, fixed_message_types: [] }), dsh_context: { version: 1, profile_id: 'db-short', sources: [] } }
+    const rejected = await postDsh(app.base, body)
+    assert.equal(rejected.response.status, 400)
+    assert.match(rejected.text, /固定规则槽/)
+    assert.equal(app.sessions.size, 0)
+    const original = await postDsh(app.base, { ...body, dsh_session: { ...body.dsh_session, request_id: 'db-2' }, dsh_context: { ...body.dsh_context, profile_id: 'original' } })
+    assert.equal(original.response.status, 200)
+    assert.equal(original.json.bridge.context.materials_mode, 'keep-all')
+    const withoutAdapter = await postDsh(app.base, { ...body, dsh_session: { ...body.dsh_session, request_id: 'db-2' }, dsh_context: undefined })
+    assert.equal(withoutAdapter.response.status, 200)
+    assert.equal(withoutAdapter.json.bridge.idempotent, true)
+  } finally { await app.close() }
+})
+
+test('new transport traces preserve real engine idempotency and generated request IDs', async () => {
+  const app = await start()
+  try {
+    const body = { messages: [{ role: 'user', content: 'unchanged target' }], dsh_session: dsh({ chat_id: 'trace-chat', request_id: undefined, fixed_message_count: 0, fixed_message_types: [] }) }
+    const args = { url: app.base + '/v1/chat/completions', pageOrigin: 'http://localhost:8000', body, base: app.base + '/v1' }
+    const a = await adaptBody(args), b = await adaptBody(args)
+    const first = await postDsh(app.base, a.body), second = await postDsh(app.base, b.body)
+    assert.equal(first.response.status, 200)
+    assert.equal(second.response.status, 200)
+    assert.equal(second.json.bridge.idempotent, true)
+    assert.equal(first.json.dsh_session.request_id, second.json.dsh_session.request_id)
+    assert.notEqual(first.json.bridge.receipt.trace_id, second.json.bridge.receipt.trace_id)
+    assert.equal(second.json.bridge.receipt.trace_id, b.preview.trace_id)
+    assert.equal(app.sessions.size, 1)
+    assert.equal([...app.sessions.values()][0].prompts.length, 1)
+  } finally { await app.close() }
+})
+
+test('fixed preset is sent in full first, then deduped once the same session confirms it', async () => {
+  const app = await start()
+  try {
+    const presetBody = 'DB_FIXED_PRESET_BODY'
+    app.engine.presetConfigs.save({
+      version: 1,
+      presets: [{
+        id: 'db', label: 'DB', client_id: 'shujuku', task_id: 'database', mode: 'exact',
+        exact_hashes: [messageHash('system', presetBody)],
+      }],
+    })
+    const body = {
+      messages: [
+        { role: 'system', content: presetBody },
+        { role: 'system', content: 'LIVE_TABLE_STATE' },
+        { role: 'user', content: 'TARGET_TEXT' },
+      ],
+      dsh_session: dsh({ client_id: 'shujuku', task_id: 'database', chat_id: 'db-preset', action: 'generate' }),
+    }
+    const first = await postDsh(app.base, body)
+    assert.equal(first.response.status, 200, first.text)
+    assert.equal(first.json.bridge.preset.status, 'first-install')
+    const sessionId = first.json.dsh_session.session_id
+    const agent = app.sessions.get(sessionId)
+    // The dynamic system block is injected as a separate prompt section, so
+    // the user prompt itself only carries the target text. The runtime block is
+    // cleared once the turn ends, so the audit fields prove the first turn kept
+    // the full copy.
+    assert.match(agent.prompts[0], /TARGET_TEXT/)
+    assert.equal(first.json.bridge.preset.deduped_chars, 0)
+    assert.ok(first.json.bridge.preset.kept_chars > 0)
+
+    const second = await postDsh(app.base, {
+      messages: [
+        { role: 'system', content: presetBody },
+        { role: 'system', content: 'LIVE_TABLE_STATE_2' },
+        { role: 'user', content: 'TARGET_TEXT_2' },
+      ],
+      dsh_session: dsh({ client_id: 'shujuku', task_id: 'database', chat_id: 'db-preset', action: 'generate' }),
+    })
+    assert.equal(second.response.status, 200, second.text)
+    assert.equal(second.json.dsh_session.session_id, sessionId)
+    assert.equal(second.json.bridge.preset.status, 'reused')
+    assert.equal(second.json.bridge.preset.rule_hash.length, 64)
+    assert.equal(JSON.stringify(second.json.bridge.preset).includes(presetBody), false)
+  } finally { await app.close() }
+})
+
+test('preset preview endpoint never installs and unknown boundaries keep everything', async () => {
+  const app = await start()
+  try {
+    const presetBody = 'DB_FIXED_PRESET_BODY'
+    app.engine.presetConfigs.save({
+      version: 1,
+      presets: [{
+        id: 'db', label: 'DB', client_id: 'shujuku', task_id: 'database', mode: 'exact',
+        exact_hashes: [messageHash('system', presetBody)],
+      }],
+    })
+    const preview = await fetch(`${app.base}/v1/bridge/fixed-presets/preview`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        messages: [{ role: 'system', content: presetBody }, { role: 'user', content: 'TARGET' }],
+        dsh_session: dsh({ client_id: 'shujuku', task_id: 'database', chat_id: 'preview-chat', action: 'generate' }),
+      }),
+    })
+    const value = await preview.json()
+    assert.equal(preview.status, 200)
+    assert.equal(value.preview_only, true)
+    assert.equal(value.status, 'identified')
+    assert.equal(value.deduped_chars, presetBody.length)
+    // Preview is read-only: no scope binding and no install record exist yet.
+    assert.equal(app.engine.store.listChats().some(chat => chat.chatId === 'preview-chat'), false)
+
+    const unknown = await postDsh(app.base, {
+      messages: [{ role: 'system', content: 'UNRELATED_SYSTEM' }, { role: 'user', content: 'TARGET' }],
+      dsh_session: dsh({ client_id: 'shujuku', task_id: 'database', chat_id: 'unknown-chat', action: 'generate' }),
+    })
+    assert.equal(unknown.response.status, 200, unknown.text)
+    assert.equal(unknown.json.bridge.preset.status, 'not-found')
+    assert.equal(unknown.json.bridge.preset.deduped_chars, 0)
+  } finally { await app.close() }
+})
+
+test('plain compat maps a plugin without dsh_session into one fixed scope', async () => {
+  const app = await start()
+  try {
+    app.engine.config.plainCompat = { enabled: true, clientId: 'yuzi-phone', chatId: 'yuzi-plain', taskId: 'default' }
+    const body = {
+      model: 'dsh-default',
+      messages: [
+        { role: 'system', content: 'YUZI_FIXED_PRESET' },
+        { role: 'user', content: 'hello' },
+      ],
+    }
+    const first = await postDsh(app.base, body)
+    assert.equal(first.response.status, 200, first.text)
+    assert.equal(first.json.dsh_session.client_id, 'yuzi-phone')
+    assert.equal(first.json.dsh_session.chat_id, 'yuzi-plain')
+    assert.equal(first.json.dsh_session.task_id, 'default')
+    assert.match(first.json.dsh_session.session_id, /^session-st-/)
+
+    const second = await postDsh(app.base, body)
+    assert.equal(second.response.status, 200, second.text)
+    assert.equal(second.json.dsh_session.session_id, first.json.dsh_session.session_id)
+    assert.equal(second.json.bridge.idempotent, true)
+    assert.equal(app.sessions.size, 1)
+  } finally { await app.close() }
+})
+
+test('plain compat stays off unless explicitly enabled', async () => {
+  const app = await start()
+  try {
+    const result = await postDsh(app.base, { messages: [{ role: 'user', content: 'hi' }] })
+    assert.equal(result.response.status, 400)
+    assert.equal(result.json.error.code, 'persistent_protocol_required')
+    assert.equal(app.sessions.size, 0)
+  } finally { await app.close() }
+})
+
+test('plain compat can answer streaming clients with SSE', async () => {
+  const app = await start()
+  try {
+    app.engine.config.plainCompat = { enabled: true, clientId: 'yuzi-phone', chatId: 'yuzi-stream', taskId: 'default' }
+    const response = await fetch(`${app.base}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'dsh-default', stream: true, messages: [{ role: 'user', content: 'hi' }] }),
+    })
+    assert.equal(response.status, 200)
+    assert.match(response.headers.get('content-type') ?? '', /text\/event-stream/)
+    const text = await response.text()
+    assert.match(text, /chat\.completion\.chunk/)
+    assert.match(text, /data: \[DONE\]/)
+  } finally { await app.close() }
+})
+
+test('plain compat can install a fixed group from the leading system message', async () => {
+  const app = await start()
+  try {
+    app.engine.config.plainCompat = {
+      enabled: true, clientId: 'yuzi-phone', chatId: 'yuzi-fixed', taskId: 'default',
+      fixedMessageCount: 1, fixedMessageTypes: ['prefix'],
+    }
+    const body = {
+      model: 'dsh-default',
+      messages: [
+        { role: 'system', content: 'YUZI_FIXED_PRESET' },
+        { role: 'system', content: 'LIVE_WORLDBOOK' },
+        { role: 'user', content: 'target' },
+      ],
+    }
+    const first = await postDsh(app.base, body)
+    assert.equal(first.response.status, 200, first.text)
+    const chat = app.engine.store.listChats().find(item => item.clientId === 'yuzi-phone')
+    assert.deepEqual(chat.fixedRules.map(rule => rule.type), ['prefix'])
+    assert.match(chat.fixedRules[0].text, /YUZI_FIXED_PRESET/)
+    assert.equal(app.sessions.size, 1)
+  } finally { await app.close() }
+})
+
+test('plain compat never consumes the only message', async () => {
+  const app = await start()
+  try {
+    app.engine.config.plainCompat = {
+      enabled: true, clientId: 'yuzi-phone', chatId: 'yuzi-single', taskId: 'default',
+      fixedMessageCount: 2, fixedMessageTypes: ['prefix', 'spec'],
+    }
+    const result = await postDsh(app.base, {
+      model: 'dsh-default',
+      messages: [{ role: 'user', content: 'only target' }],
+    })
+    assert.equal(result.response.status, 200, result.text)
+    const chat = app.engine.store.listChats().find(item => item.chatId === 'yuzi-single')
+    assert.deepEqual(chat.fixedRules, [])
+  } finally { await app.close() }
+})
+
+test('bridge cleanup projects dynamic messages but protects fixed rules', async () => {
+  const app = await start()
+  try {
+    app.engine.config.inputCleanup = { enabled: true, tags: ['bbi_image'] }
+    const result = await postDsh(app.base, {
+      model: 'dsh-default',
+      messages: [
+        { role: 'system', content: 'FIXED<bbi_image>keep-example</bbi_image>' },
+        { role: 'system', content: 'LIVE<bbi_image>{"summary":1}</bbi_image>STATE' },
+        { role: 'user', content: 'target' },
+      ],
+      dsh_session: dsh({ chat_id: 'cleanup-chat', fixed_message_count: 1, fixed_message_types: ['prefix'] }),
+    })
+    assert.equal(result.response.status, 200, result.text)
+    assert.equal(result.json.bridge.input_cleanup.removed_blocks, 1)
+    assert.match(result.json.bridge.input_cleanup.effective_messages_digest, /^[a-f0-9]{64}$/)
+    const chat = app.engine.store.listChats().find(item => item.chatId === 'cleanup-chat')
+    assert.match(chat.fixedRules[0].text, /keep-example/)
+  } finally { await app.close() }
+})
+
+test('snapshot diff trims identical blocks after a successful turn', async () => {
+  const app = await start()
+  try {
+    const marker = '9F3C7A1E5B2D'
+    const B = `<<<STB-${marker}:B>>>`
+    const E = `<<<STB-${marker}:E>>>`
+    app.engine.config.snapshotDiff = { enabled: true, mode: 'marker', marker, clients: ['shujuku'], onDivergence: 'full' }
+    const body = (middle, target, id) => ({
+      model: 'dsh-default',
+      messages: [
+        { role: 'system', content: `${B}\nFIXED_A\n${E}\n${B}\n${middle}\n${E}\n${B}\nFIXED_B\n${E}` },
+        { role: 'user', content: target },
+      ],
+      dsh_session: dsh({ client_id: 'shujuku', task_id: 'database', chat_id: 'snap-chat', request_id: id }),
+    })
+    const first = await postDsh(app.base, body('OLD_MIDDLE', 'target one', 'snap-1'))
+    assert.equal(first.response.status, 200, first.text)
+    assert.equal(first.json.bridge.dynamic_diff.status, 'no-snapshot')
+
+    const second = await postDsh(app.base, body('NEW_MIDDLE', 'target two', 'snap-2'))
+    assert.equal(second.response.status, 200, second.text)
+    assert.equal(second.json.bridge.dynamic_diff.status, 'trimmed')
+    assert.equal(second.json.bridge.dynamic_diff.trimmed_blocks, 2)
+    assert.equal(second.json.dsh_session.session_id, first.json.dsh_session.session_id)
+  } finally { await app.close() }
+})
+
+test('auto paragraph mode trims a database-style message without markers', async () => {
+  const app = await start()
+  try {
+    app.engine.config.snapshotDiff = { enabled: true, mode: 'auto', maxBlockChars: 2000, clients: ['shujuku'], onDivergence: 'full' }
+    const body = (middle, target, id) => ({
+      model: 'dsh-default',
+      messages: [
+        { role: 'system', content: `FIXED_A\n\n${middle}\n\nFIXED_B` },
+        { role: 'user', content: target },
+      ],
+      dsh_session: dsh({ client_id: 'shujuku', task_id: 'database', chat_id: 'auto-chat', request_id: id }),
+    })
+    const first = await postDsh(app.base, body('OLD_MIDDLE', 'target one', 'auto-1'))
+    assert.equal(first.response.status, 200, first.text)
+    assert.equal(first.json.bridge.dynamic_diff.status, 'no-snapshot')
+    const second = await postDsh(app.base, body('NEW_MIDDLE', 'target two', 'auto-2'))
+    assert.equal(second.response.status, 200, second.text)
+    assert.equal(second.json.bridge.dynamic_diff.status, 'trimmed')
+    assert.equal(second.json.bridge.dynamic_diff.mode, 'auto')
+    assert.equal(second.json.bridge.dynamic_diff.trimmed_blocks, 2)
+  } finally { await app.close() }
 })

@@ -1,0 +1,23 @@
+# 数据库（shujuku）固定规则分组
+#
+# 用途：把“每轮完全一样”的数据库预设从动态资料中剥离，桥接只在固定区保留一份。
+# 动态组继续发送：本轮世界书、当前表格、目标正文。
+#
+# 先运行：
+#   node tools/fixed-group-preview.mjs <一份真实请求.json>
+# 确认开头 system 消息的数量和内容，再按实际结果调整下面的 count。
+#
+# 保守配置（推荐先这样）：只固定第 1 条数据库预设。
+#   - 优点：即使某轮没有世界书，动态组仍含 user，不会报 empty_dynamic_group。
+#   - 缺点：第 2 条 JSON 输出协议仍会作为动态资料每轮发送。
+#
+# 确认第 2 条“JSON 输出协议”每轮都存在且完全一致后，可改成 count: 2、
+# types: ["prefix", "contract"]。
+dsh_session:
+  protocol_version: 1
+  client_id: shujuku
+  chat_id: shujuku-db
+  task_id: database
+  action: generate
+  fixed_message_count: 1
+  fixed_message_types: ["prefix"]

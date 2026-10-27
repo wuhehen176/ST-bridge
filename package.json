@@ -1,6 +1,6 @@
 {
   "name": "ST-bridge",
-  "version": "0.4.0",
+  "version": "0.6.9",
   "private": true,
   "type": "module",
   "description": "DSH persistent Agent session bridge for Tavern plugins",
@@ -38,7 +38,11 @@
     "cordis.patch.yml",
     "cordis.patch.snippet.yml",
     "install.mjs",
+    "deploy.mjs",
+    "tavern-extension",
+    "install-tavern.mjs",
     "README.md",
+    "CONTEXT-ADAPTER.md",
     "LICENSE"
   ],
   "engines": {
@@ -57,6 +61,7 @@
     }
   },
   "scripts": {
+    "deploy:check": "node deploy.mjs --check",
     "test": "node --test test/*.test.mjs",
     "check": "node --check index.js && node --check client.js && node --check lib/engine.js && node --check lib/server.js && node --check lib/panel.js"
   }

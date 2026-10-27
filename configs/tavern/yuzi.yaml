@@ -1,0 +1,20 @@
+# 玉子手机（yuzi-phone）固定规则分组
+#
+# 用途：把玉子手机的固定预设（人设/短信格式规范）从动态资料中剥离。
+# 动态组继续发送：本轮世界书、手机聊天上下文、目标正文。
+#
+# 先运行：
+#   node tools/fixed-group-preview.mjs <一份真实请求.json>
+# 确认开头 system 消息的数量和内容，再按实际结果调整下面的 count。
+#
+# 如果玉子的固定预设是两条 system（人设 + 短信格式），且两条每轮都稳定，
+# 才改成 fixed_message_count: 2、fixed_message_types: ["prefix", "spec"]。
+# 否则保持 1 条，避免把动态世界书误当固定规则。
+dsh_session:
+  protocol_version: 1
+  client_id: yuzi-phone
+  chat_id: yuzi-phone
+  task_id: default
+  action: generate
+  fixed_message_count: 1
+  fixed_message_types: ["prefix"]

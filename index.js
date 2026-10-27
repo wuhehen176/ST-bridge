@@ -7,11 +7,13 @@
  */
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { LOADED_BUILD } from './lib/build-info.js'
 import { BridgeEngine } from './lib/engine.js'
 import { createLogger } from './lib/log.js'
 import { PanelController, applyPersistedSettings, registerPanelRpc } from './lib/panel.js'
 import { createBridgeServer, VERSION } from './lib/server.js'
 import { BridgeStore } from './lib/store.js'
+import { normalizeSnapshotMarker } from './lib/snapshot-diff.js'
 import { clampInteger, ensureDir } from './lib/util.js'
 
 export const name = 'ST-bridge'
@@ -56,6 +58,38 @@ function normalizeConfig(raw) {
     allowLegacyPlain: config.allowLegacyPlain === true,
     allowRemote: config.allowRemote === true,
     allowedClientIds: Array.isArray(config.allowedClientIds) ? config.allowedClientIds.map(String) : [],
+    plainCompat: {
+      enabled: config.plainCompat?.enabled === true,
+      clientId: typeof config.plainCompat?.clientId === 'string' && config.plainCompat.clientId.trim() !== ''
+        ? config.plainCompat.clientId.trim()
+        : 'yuzi-phone',
+      chatId: typeof config.plainCompat?.chatId === 'string' && config.plainCompat.chatId.trim() !== ''
+        ? config.plainCompat.chatId.trim()
+        : 'yuzi-phone',
+      taskId: typeof config.plainCompat?.taskId === 'string' && config.plainCompat.taskId.trim() !== ''
+        ? config.plainCompat.taskId.trim()
+        : 'default',
+      fixedMessageCount: clampInteger(config.plainCompat?.fixedMessageCount, 0, 4) ?? 0,
+      fixedMessageTypes: Array.isArray(config.plainCompat?.fixedMessageTypes)
+        ? config.plainCompat.fixedMessageTypes.map(String)
+        : [],
+    },
+    inputCleanup: {
+      enabled: config.inputCleanup?.enabled !== false,
+      tags: Array.isArray(config.inputCleanup?.tags) && config.inputCleanup.tags.length > 0
+        ? config.inputCleanup.tags.map(String)
+        : ['bbi_image'],
+    },
+    snapshotDiff: {
+      enabled: config.snapshotDiff?.enabled === true,
+      mode: config.snapshotDiff?.mode === 'marker' ? 'marker' : 'auto',
+      marker: normalizeSnapshotMarker(config.snapshotDiff?.marker),
+      maxBlockChars: clampInteger(config.snapshotDiff?.maxBlockChars, 64, 20000) ?? 2000,
+      clients: Array.isArray(config.snapshotDiff?.clients)
+        ? config.snapshotDiff.clients.map(String)
+        : ['shujuku', 'yuzi-phone'],
+      onDivergence: config.snapshotDiff?.onDivergence === 'branch' ? 'branch' : 'full',
+    },
   }
 }
 
@@ -118,6 +152,7 @@ export function apply(ctx, rawConfig) {
       log(`[panel] 注册设置通道失败: ${error instanceof Error ? error.message : String(error)}`)
     }
     log(`[bridge] 启动 ${config.host}:${config.port} cwd=${config.cwd} preset=${config.agentPreset}`)
+    log(`[build] version=${LOADED_BUILD.version} sha256=${LOADED_BUILD.revision} entry=${LOADED_BUILD.entry_path}`)
     try {
       await serverControl.start()
     } catch (error) {

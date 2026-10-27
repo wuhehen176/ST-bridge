@@ -115,6 +115,20 @@ window.__ModuleLoader__.load({
         allowNullOrigin: status?.service?.allowNullOrigin === true,
         corsText: (status?.service?.corsOrigins ?? []).join('\n'),
         allowedClientsText: (status?.service?.allowedClientIds ?? []).join('\n'),
+        plainCompatEnabled: status?.service?.plainCompat?.enabled === true,
+        plainCompatClientId: status?.service?.plainCompat?.clientId ?? 'yuzi-phone',
+        plainCompatChatId: status?.service?.plainCompat?.chatId ?? 'yuzi-phone',
+        plainCompatTaskId: status?.service?.plainCompat?.taskId ?? 'default',
+        plainCompatFixedCount: String(status?.service?.plainCompat?.fixedMessageCount ?? 0),
+        plainCompatFixedTypes: (status?.service?.plainCompat?.fixedMessageTypes ?? []).join(','),
+        inputCleanupEnabled: status?.service?.inputCleanup?.enabled !== false,
+        inputCleanupTags: (status?.service?.inputCleanup?.tags ?? ['bbi_image']).join(','),
+        snapshotEnabled: status?.service?.snapshotDiff?.enabled === true,
+        snapshotMode: status?.service?.snapshotDiff?.mode ?? 'auto',
+        snapshotMaxBlockChars: String(status?.service?.snapshotDiff?.maxBlockChars ?? 2000),
+        snapshotMarker: status?.service?.snapshotDiff?.marker ?? '',
+        snapshotClientsText: (status?.service?.snapshotDiff?.clients ?? ['shujuku', 'yuzi-phone']).join(','),
+        snapshotDivergence: status?.service?.snapshotDiff?.onDivergence ?? 'full',
       }
     }
 
@@ -132,6 +146,7 @@ window.__ModuleLoader__.load({
       const [dangerText, setDangerText] = React.useState('')
       const [rawText, setRawText] = React.useState('')
       const [rawLoaded, setRawLoaded] = React.useState(false)
+      const [presets, setPresets] = React.useState(null)
 
       const rpc = React.useCallback(async (endpoint, payload = {}) => {
         const result = await rpcRef.current(endpoint, payload)
@@ -205,6 +220,26 @@ window.__ModuleLoader__.load({
           allowNullOrigin: form.allowNullOrigin,
           corsOrigins: form.corsText.split(/[\n,]+/).map(item => item.trim()).filter(Boolean),
           allowedClientIds: form.allowedClientsText.split(/[\n,]+/).map(item => item.trim()).filter(Boolean),
+          plainCompat: {
+            enabled: form.plainCompatEnabled,
+            clientId: form.plainCompatClientId.trim() || 'yuzi-phone',
+            chatId: form.plainCompatChatId.trim() || 'yuzi-phone',
+            taskId: form.plainCompatTaskId.trim() || 'default',
+            fixedMessageCount: Number(form.plainCompatFixedCount) || 0,
+            fixedMessageTypes: form.plainCompatFixedTypes.split(/[\n,]+/).map(item => item.trim()).filter(Boolean),
+          },
+          inputCleanup: {
+            enabled: form.inputCleanupEnabled,
+            tags: form.inputCleanupTags.split(/[\n,]+/).map(item => item.trim()).filter(Boolean),
+          },
+          snapshotDiff: {
+            enabled: form.snapshotEnabled,
+            mode: form.snapshotMode === 'marker' ? 'marker' : 'auto',
+            maxBlockChars: Number(form.snapshotMaxBlockChars) || 2000,
+            marker: form.snapshotMarker.trim(),
+            clients: form.snapshotClientsText.split(/[\n,]+/).map(item => item.trim()).filter(Boolean),
+            onDivergence: form.snapshotDivergence === 'branch' ? 'branch' : 'full',
+          },
         }
         if (!Number.isInteger(payload.port) || payload.port < 1 || payload.port > 65535) {
           throw new Error('端口必须是 1-65535 的整数')
@@ -241,6 +276,21 @@ window.__ModuleLoader__.load({
           setError(`读取规则失败：${err instanceof Error ? err.message : String(err)}`)
         }
       }
+
+      const loadPresets = async () => {
+        try {
+          setPresets(await rpc('presets', {}))
+          setError('')
+        } catch (err) {
+          setError(`读取固定预设失败：${err instanceof Error ? err.message : String(err)}`)
+        }
+      }
+
+      const rotateSnapshotMarker = () => run('生成快照标记', async () => {
+        const value = await rpc('action', { action: 'rotate_snapshot_marker' })
+        setForm(current => ({ ...current, snapshotMarker: value.marker, snapshotEnabled: true }))
+        return `已生成新标记 ${value.marker}；旧快照已失效，请把它更新到模板。`
+      })
 
       const showLogPath = async () => {
         try {
@@ -286,6 +336,7 @@ window.__ModuleLoader__.load({
         ['general', '服务'],
         ['model', '模型'],
         ['clients', `客户端 (${chats.length})`],
+        ['presets', '固定预设'],
         ['diagnostics', '诊断'],
         ['danger', '危险操作'],
         ['advanced', '高级'],
@@ -319,7 +370,10 @@ window.__ModuleLoader__.load({
             role: 'tab',
             'aria-selected': tab === key,
             className: tab === key ? 'bbh-tab is-on' : 'bbh-tab',
-            onClick: () => setTab(key),
+            onClick: () => {
+              setTab(key)
+              if (key === 'presets' && presets === null) void loadPresets()
+            },
           }, label)),
         ),
 
@@ -361,6 +415,54 @@ window.__ModuleLoader__.load({
             h('textarea', { className: 'bbh-textarea', rows: 3, value: form.corsText, onChange: e => setField('corsText', e.target.value) })),
           h(Check, { checked: form.allowLegacyPlain, onChange: value => setField('allowLegacyPlain', value), label: '允许不带 dsh_session 的旧式普通补全', hint: '默认关闭，避免健康检查创建正式会话。' }),
           h(Check, { checked: form.allowRemote, onChange: value => setField('allowRemote', value), label: '允许绑定非本机地址', hint: '高风险，仅在已有 token 与网络隔离时使用。' }),
+          h(Check, { checked: form.inputCleanupEnabled, onChange: value => setField('inputCleanupEnabled', value), label: '桥接侧清理 bbi_image 完整块', hint: '兜底处理绕过浏览器适配的请求；只删完整成对标签，孤立/跨消息保留并记录。' }),
+          h(Field, { label: '清理标签', hint: '逗号分隔，默认 bbi_image。' },
+            h('input', { className: 'bbh-input', value: form.inputCleanupTags, onChange: e => setField('inputCleanupTags', e.target.value) })),
+          h('details', { className: 'bbh-fold', open: form.snapshotEnabled },
+            h('summary', null, '快照差分：删除与上一轮相同的块'),
+            h('p', { className: 'bbh-note' }, '用专属随机标记切块，只删开头/结尾完整相同块；没有标记或标记不配对时整段发送。'),
+            h(Check, { checked: form.snapshotEnabled, onChange: value => setField('snapshotEnabled', value), label: '启用快照差分' }),
+            h('div', { className: 'bbh-grid2' },
+              h(Field, { label: '切块模式', hint: 'auto = 自动按段落切；marker = 模板 B/E 标记。' },
+                h('input', { className: 'bbh-input', value: form.snapshotMode, onChange: e => setField('snapshotMode', e.target.value) })),
+              h(Field, { label: '单块上限（字符）', hint: 'auto 模式下长段落每行一块；单行超长才按此上限切。' },
+                h('input', { className: 'bbh-input', type: 'number', min: 64, max: 20000, value: form.snapshotMaxBlockChars, onChange: e => setField('snapshotMaxBlockChars', e.target.value) })),
+            ),
+            h('div', { className: 'bbh-actions' },
+              h('input', { className: 'bbh-input', readOnly: true, value: form.snapshotMarker || '（尚未生成）' }),
+              h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => void rotateSnapshotMarker() }, '生成标记'),
+              h('button', {
+                type: 'button',
+                className: 'bbh-btn secondary',
+                disabled: busy || !form.snapshotMarker,
+                onClick: () => { if (form.snapshotMarker) void navigator.clipboard?.writeText(`<<<STB-${form.snapshotMarker}:B>>> ... <<<STB-${form.snapshotMarker}:E>>>`) },
+              }, '复制标记'),
+            ),
+            h('p', { className: 'bbh-note' }, '模板写法：每段用 B/E 包起来。标记只在传输层存在，进模型前剥掉。'),
+            h(Field, { label: '适用的 client_id', hint: '逗号分隔；留空表示所有客户端。' },
+              h('input', { className: 'bbh-input', value: form.snapshotClientsText, onChange: e => setField('snapshotClientsText', e.target.value) })),
+            h(Field, { label: '分歧处理', hint: 'full = 整段发送；branch = 新分支。' },
+              h('input', { className: 'bbh-input', value: form.snapshotDivergence, onChange: e => setField('snapshotDivergence', e.target.value) })),
+          ),
+          h('details', { className: 'bbh-fold', open: form.plainCompatEnabled },
+            h('summary', null, '兼容模式：普通 OpenAI 请求归入固定 scope'),
+            h('p', { className: 'bbh-note' }, '用于只能填 URL/Key/模型、无法发送 dsh_session 的插件（例如玉子手机）。所有不带 dsh_session 的请求都会归入下面这一个 scope；不同插件不要同时使用。'),
+            h(Check, { checked: form.plainCompatEnabled, onChange: value => setField('plainCompatEnabled', value), label: '启用普通请求兼容模式' }),
+            h('div', { className: 'bbh-grid2' },
+              h(Field, { label: 'client_id' },
+                h('input', { className: 'bbh-input', value: form.plainCompatClientId, onChange: e => setField('plainCompatClientId', e.target.value) })),
+              h(Field, { label: 'task_id' },
+                h('input', { className: 'bbh-input', value: form.plainCompatTaskId, onChange: e => setField('plainCompatTaskId', e.target.value) })),
+            ),
+            h(Field, { label: 'chat_id', hint: '固定绑定名；所有普通请求共用这一个持久会话。' },
+              h('input', { className: 'bbh-input', value: form.plainCompatChatId, onChange: e => setField('plainCompatChatId', e.target.value) })),
+            h('div', { className: 'bbh-grid2' },
+              h(Field, { label: '固定规则条数', hint: '0=不固定；1=第一条 system 作为固定规则。' },
+                h('input', { className: 'bbh-input', type: 'number', min: 0, max: 4, value: form.plainCompatFixedCount, onChange: e => setField('plainCompatFixedCount', e.target.value) })),
+              h(Field, { label: '固定规则类型', hint: '与条数逐条对应，用逗号分隔：prefix,spec,contract,check' },
+                h('input', { className: 'bbh-input', value: form.plainCompatFixedTypes, onChange: e => setField('plainCompatFixedTypes', e.target.value) })),
+            ),
+          ),
           h('div', { className: 'bbh-actions' },
             h('button', { type: 'button', className: 'bbh-btn', disabled: busy, onClick: () => void save() }, busy ? '保存中…' : '保存设置'),
             h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => void saveAndRestart() }, '保存并重启'),
@@ -445,6 +547,43 @@ window.__ModuleLoader__.load({
               ? h('p', { className: 'bbh-note' }, '当前 scope 没有固定规则。')
               : h('pre', { className: 'bbh-pre' }, rules.fixed_rules.map(rule => `[${rule.type}] (${rule.role})\n${rule.text}`).join('\n\n')),
           ) : null,
+        ) : null,
+
+        status === null ? null : tab === 'presets' ? h('div', { className: 'bbh-card' },
+          h('div', { className: 'bbh-actions', style: { justifyContent: 'space-between' } },
+            h('h3', { className: 'bbh-card-title' }, '固定预设分离'),
+            h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => void loadPresets() }, presets ? '刷新' : '读取'),
+          ),
+          h('p', { className: 'bbh-note' }, '只对已确认的边界去重。未识别、部分匹配、多重匹配一律完整保留；配置只存 Hash，不存预设正文。'),
+          presets === null
+            ? h('p', { className: 'bbh-note' }, '尚未读取。')
+            : [
+                h('p', { className: 'bbh-note' }, `已配置 ${presets.presets.length} 条，已安装 ${presets.installs.length} 个 scope。`),
+                ...presets.presets.map(item => h('div', { className: 'bbh-item', key: item.id },
+                  h('div', null,
+                    h('strong', null, item.label),
+                    h('div', { className: 'bbh-note' }, `${item.client_id} / ${item.task_id} · ${item.mode} · ${item.hash.slice(0, 12)}`),
+                  ),
+                )),
+                ...presets.installs.map(chat => h('div', { className: 'bbh-item', key: `${chat.client_id}:${chat.chat_id}:${chat.task_id}` },
+                  h('div', null,
+                    h('strong', null, `${chat.client_label} / ${chat.chat_id}${chat.task_id !== 'default' ? ` / ${chat.task_id}` : ''}`),
+                    h('div', { className: 'bbh-note' }, `${chat.last_status ?? '未知'}${chat.last_reason ? ` · ${chat.last_reason}` : ''} · 省 ${chat.deduped_chars ?? 0} / 原 ${chat.original_chars ?? 0} 字符`),
+                  ),
+                  h('div', { className: 'bbh-item-actions' },
+                    h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => void viewRules(chat) }, '规则'),
+                    h('button', {
+                      type: 'button',
+                      className: 'bbh-btn secondary',
+                      disabled: busy,
+                      onClick: () => {
+                        if (!window.confirm(`清除 ${chat.client_label} / ${chat.chat_id} 的固定预设安装状态？下次生成会重新安装。`)) return
+                        void action('reset_preset', { client_id: chat.client_id, chat_id: chat.chat_id, task_id: chat.task_id })
+                      },
+                    }, '重新安装'),
+                  ),
+                )),
+              ],
         ) : null,
 
         status === null ? null : tab === 'diagnostics' ? h('div', { className: 'bbh-card' },

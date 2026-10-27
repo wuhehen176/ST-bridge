@@ -5,10 +5,13 @@ ST-bridge 是供柏宝绘、玉子手机、数据库等酒馆插件调用的本�
 
 仓库：<https://github.com/wuhehen176/ST-bridge>
 
+本机跨插件的来源预览与手动规则档位见 [上下文适配第一版](CONTEXT-ADAPTER.md)。
+默认所有材料保留，仅处理显式配置的本机桥接请求。
+
 > 更新本项目代码后，需要**完全退出并重启 DSH Desktop**才能加载新版本。
-> DSH Host 插件不会热替换已经加载的 vendor 代码。
-> 重启后 `GET /health` 应显示 `version: "0.4.0"`；若仍是旧版本，说明
-> 43121 还是旧进程。
+> DSH Host 插件不会热替换已经加载的代码。vendor 和 `node_modules` 可能是
+> 两份独立副本；仅复制 vendor 或仅比较版本号，不能证明运行进程已更新。
+> 请用下方部署检查脚本核对解析入口、磁盘副本和进程加载指纹。
 
 这不是一个直接转发模型 API 的代理，而是一个 **DSH Host 插件**。每个酒馆
 `chat_id` 绑定一个真实的 DSH Agent 会话；会话通过 `ctx.agents` 创建，因此会
@@ -39,6 +42,8 @@ ST-bridge 是供柏宝绘、玉子手机、数据库等酒馆插件调用的本�
 | `lib/panel.js` | DSH 设置页 Host RPC、设置持久化、scope/规则/危险操作 |
 | `client.js` | DSH 设置页浏览器半边 |
 | `install.mjs` | 安装到当前 DSH profile |
+| `deploy.mjs` | 更新前检查、备份同步与重启后的运行指纹检查 |
+| `lib/build-info.js` | 捕获本次进程加载的版本、入口与 SHA-256 指纹 |
 | `cordis.patch.yml` | npm/bundle 安装时使用的插件包 patch |
 | `cordis.patch.snippet.yml` | 手工安装片段 |
 | `assets/preset-persona.txt` | 桥接专用最小系统提示词 |
@@ -81,6 +86,55 @@ node install.mjs --uninstall
 
 手工安装可参考 `cordis.patch.snippet.yml`。配置块也可以直接写进
 `~/.dsh/profiles/desktop/cordis.patch.yml` 末尾。
+
+## 更新与部署检查
+
+在**准备发布的源码目录**执行，Node.js 22.19+，无需额外依赖：
+
+```powershell
+node deploy.mjs --check
+```
+
+默认是只读检查。脚本通过 Node 的模块解析确定 profile 实际加载的
+`ST-bridge` 入口，并检查现存 vendor 副本。发现待同步文件时退出码为 1；
+磁盘一致时为 0。这里检查的是磁盘，尚不能证明运行进程已更新。
+
+确认当前没有生成任务，**从托盘完全退出 DSH Desktop**，再执行：
+
+```powershell
+node deploy.mjs --apply
+```
+
+脚本会检查 DSH 进程和本机桥接端口均已停止，再对发布包里的 JS 做语法检查。
+它备份待修改文件到 `<profile>/.st-bridge-backups/<时间与随机编号>/`，
+同步实际安装副本和 vendor，移除旧发布清单中的过时代码，并逐文件比对内容。
+复制或校验失败时回滚本次修改，备份保留。若检查期间目标文件被其他程序
+改动，脚本停止，要求重新检查。它不会改 profile 配置、设置、会话数据，
+也不会安装依赖或自动启动、退出 DSH。源码链接安装会跳过自我复制。
+
+手动启动 DSH 后执行：
+
+```powershell
+node deploy.mjs --verify-running
+```
+
+只有磁盘副本一致，且 `/health` 报告的**加载时指纹与入口**都与本次源码及
+所选 profile 对应，才返回成功。版本号相同、未重启的旧进程、旧版没有指纹，
+都不能通过。启动日志同时记录 `[build] version=... sha256=... entry=...`。
+指纹在模块加载时捕获，之后覆盖磁盘文件不会改变该进程报告的值。
+
+默认 profile 是 `~/.dsh/profiles/desktop`，默认从
+`~/.dsh/st-bridge/settings.json` 读取桥接端口与令牌（令牌不会打印）。可指定：
+
+```powershell
+node deploy.mjs --check --profile C:\path\to\profile
+node deploy.mjs --verify-running --port 43121 --settings C:\path\to\settings.json
+```
+
+需要同时指定 profile 与 settings 时，将两个选项一起传入。若认证仅写在
+Cordis 配置而未保存到本地设置，先通过 DSH 桥接设置页保存，或指定含当前
+令牌的本地 settings 文件。运行检查只连接 `127.0.0.1`，不跟随重定向。
+自动部署的进程检查目前支持 Windows；`--check` 可跨平台使用。
 
 ## DSH 设置面板
 
@@ -525,6 +579,25 @@ curl -s http://127.0.0.1:43121/v1/chat/completions \
 缓存命中可能是 `prompt_cache_hit_tokens`，也可能是
 `prompt_tokens_details.cached_tokens`，两者都按上游原样透传。
 
+新请求还会在 `usage.diagnostics` 中记录诊断；usage 字段结构和跨事件累加方式保持兼容，原生 DSH 输入口径按下述账目规则纠正：
+
+- `usageEventCount` 是带 usage 的消息事件数，`maxUsageEventPromptTokens` 是事件最大输入，二者不等同于模型调用数和单次上下文。
+- 每个事件有明确的 `data.callId` 或合法的 `turn:step` 时才提供 `modelCallCount`，消息 ID 不作替代。同一步重复记录时不猜测 token 去重方式。
+- 只有调用 ID 全部唯一且每条均有输入计数时，才提供 `sumPromptTokens` 和 `maxPromptTokens`。重复调用 ID 的 usage 是快照还是增量无法确认时，保留未知。
+- `cacheReporting` 标记是否提供缓存数据，`cacheCoverage` 为 complete/partial/none。完整且独立的调用才提供诊断缓存合计；缺失值不补零。
+- `usageRecords` 保留调用标识、识别到的数值 usage，以及原始 DSH 数值字段 `adapterUsage`，不复制正文、请求头或任意上游元数据。两种缓存字段若同时存在，不相加；诊断合计优先使用 `prompt_cache_hit_tokens`。
+
+DSH 的 `cacheReadTokens` 映射到 `prompt_tokens_details.cached_tokens`。若原生字段满足 `totalTokens = inputTokens + cacheReadTokens + cacheWriteTokens + outputTokens`，则按已核对的账目将缓存部分计入 OpenAI 格式的 `prompt_tokens`；已有显式 `prompt_tokens` 不再加一次缓存。方程无法验证时保留原输入值，不能只因缓存读取大于该值就断言数据累计或上下文截断。旧版本保存的 prompt_tokens 可能只含未缓存部分，不能直接与新版本比较。
+
+只读账本（不会调用模型、修改状态或压缩历史）：
+
+```bash
+node tools/ctx-audit.mjs --state /path/to/state.json
+node tools/ctx-audit.mjs --state /path/to/state.json --json /path/to/report.json
+```
+
+调用数与事件数分列；历史无诊断时显示未知。`--prompt /path/to/payload.json` 可提供按正则分类的估算，仅用于观察方向，不能当作准确来源归因。固定规则的字符体积来自当前保存版本，token 数为估算，不代表旧请求的最终模型输入。源仓库更新后，需在没有生成任务时另行同步 vendor 并重启；旧记录不会自动补齐。
+
 流式响应：
 
 ```bash
@@ -560,6 +633,31 @@ curl -s http://127.0.0.1:43121/v1/bridge/reset \
 ### `GET /health`
 
 健康检查，返回服务名、版本、端口、启动时长。
+
+## 普通请求兼容模式
+
+有些插件（例如玉子手机的 API 预设）只能填 URL / Key / 模型，无法发送
+`dsh_session`。桥接默认拒绝这类请求；如果在设置面板显式开启兼容模式，可以把
+它们归入一个固定的本机 scope：
+
+```text
+plainCompat.enabled = true
+plainCompat.clientId = yuzi-phone
+plainCompat.chatId   = yuzi-phone
+plainCompat.taskId   = default
+```
+
+行为：
+
+- 只对**不带** `dsh_session` 的 `POST /v1/chat/completions` 生效；
+- 自动补 `protocol_version:1`、`action:generate`、`fixed_message_count:0`，
+  并按 `chat_id + messages` 生成稳定的 `request_id`；
+- 所有普通请求共用这一个持久会话；
+- `stream: true` 会返回 SSE，其余返回普通 JSON；
+- 显式带 `dsh_session` 的请求不受影响。
+
+这是全局开关，同一时间只适合一个不会发 `dsh_session` 的插件。数据库有能力发
+`dsh_session`（用固定组），不要和玉子共用兼容模式。
 
 ## 行为细节
 
@@ -705,6 +803,14 @@ git config user.email "you@example.com"
 ```
 
 仓库里不要提交 `settings.json`、`state.json`、`*.log`；`.gitignore` 已排除。
+
+## blocked 与归档会话
+
+桥接会在恢复会话时检查 DSH 的归档状态。已归档会话返回 HTTP 409、`error.code=session_archived`；恢复旧会话或明确清除绑定新建后再提交。桥接不会自动解除归档或绕过归档新建会话。
+
+DSH 在模型调用前拒绝请求时，日志可能只有 inbox 领取记录和 `turn/end: blocked`，没有 `user/message`。桥接会按确切 request ID 回查被领取的 inbox 消息，将该请求标记为 error 并返回 `agent_turn_blocked`，不再等待整个超时时间。重启后重试旧 pending 请求时也使用同一恢复逻辑；不匹配的、尚未领取的和取消的消息不会被当成本请求的结果。
+
+HTTP 400 `persistent_protocol_required` 是另一类入口错误：请求未携带 `dsh_session`，尚未进入 Agent 回合。应修正调用方的协议配置；它不等于 blocked。
 
 ## 测试
 

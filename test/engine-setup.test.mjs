@@ -117,3 +117,55 @@ test('turnFailure maps unsupported reasoning effort to a clear 400', () => {
   assert.equal(error.status, 400)
   assert.equal(error.code, 'unsupported_reasoning_effort')
 })
+
+test('protocol snapshots shadow only owned system nodes and retain conversations', () => {
+  const engine = engineWithPresets()
+  const id = 'session-st-snapshot-test'
+  const runtime = engine.runtimeFor(id)
+  runtime.protocol = true
+  runtime.dynamicSystem = [{ role: 'system', text: 'LATEST' }]
+  const events = [
+    { type: 'system/message', data: { message: { content: [{ type: 'text', text: '<<<FIXED_RULE old' }] } } },
+    { type: 'user/message', data: { message: { content: [{ type: 'text', text: 'USER' }] } } },
+    { type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'ANSWER' }] } } },
+    { type: 'system/message', data: { message: { content: [{ type: 'text', text: '<<<DYNAMIC_SYSTEM old' }] } } },
+  ]
+  const initial = structuredClone(events)
+  const session = {
+    surface: { nodes: [0, 1, 2, 3] },
+    eventAt: seq => events[seq],
+    append(type, data, options) {
+      const target = options.surfaceOp.startSeq
+      assert.equal(options.surfaceOp.endSeq, target)
+      assert.deepEqual(options.sourceEventSeqs, [target])
+      assert.equal(events[target].type, 'system/message')
+      const index = this.surface.nodes.indexOf(target)
+      assert.ok(index >= 0)
+      this.surface.nodes[index] = events.length
+      events.push({ type, data })
+    },
+  }
+  engine.handles.set(id, { agent: { session } })
+  assert.equal(engine.replaceProtocolSystemSnapshot(runtime, { turn: 8, step: 1 }), 2)
+  assert.deepEqual(events.slice(0, initial.length), initial)
+  assert.ok(session.surface.nodes.includes(1))
+  assert.ok(session.surface.nodes.includes(2))
+  // Simulate the native projection installing one leading current system node.
+  const first = session.surface.nodes[0]
+  session.append('system/message', { message: { content: [{ type: 'text', text: '<<<DYNAMIC_SYSTEM latest' }] } }, {
+    surfaceOp: { op: 'replace', startSeq: first, endSeq: first }, sourceEventSeqs: [first],
+  })
+  assert.equal(engine.replaceProtocolSystemSnapshot(runtime, { turn: 9, step: 1 }), 0)
+  runtime.dynamicSystem = []
+  assert.equal(engine.replaceProtocolSystemSnapshot(runtime, { turn: 10, step: 1 }), 1)
+})
+
+test('legacy sessions are untouched and unsupported native projection fails explicitly', () => {
+  const engine = engineWithPresets()
+  assert.equal(engine.replaceProtocolSystemSnapshot(engine.runtimeFor('session-legacy'), {}), 0)
+  const runtime = engine.runtimeFor('session-st-unsupported')
+  runtime.protocol = true
+  engine.handles.set(runtime.sessionId, { agent: { session: {} } })
+  assert.throws(() => engine.replaceProtocolSystemSnapshot(runtime, { turn: 1, step: 1 }),
+    error => error.code === 'system_snapshot_unavailable')
+})
