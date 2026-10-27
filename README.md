@@ -685,7 +685,7 @@ git push -u origin main
 git push --tags
 ```
 
-当前首次提交的作者是占位身份 `st-bridge`。如需改成你自己的身份：
+当前首次提交的作者是占位身份 `ST-bridge`。如需改成你自己的身份：
 
 ```bash
 git config user.name "Your Name"
