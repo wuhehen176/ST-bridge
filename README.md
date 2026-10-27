@@ -3,6 +3,8 @@
 ST-bridge 是供柏宝绘、玉子手机、数据库等酒馆插件调用的本机持久会话桥接：
 `http://127.0.0.1:43121/v1`。
 
+仓库：<https://github.com/wuhehen176/ST-bridge>
+
 > 更新本项目代码后，需要**完全退出并重启 DSH Desktop**才能加载新版本。
 > DSH Host 插件不会热替换已经加载的 vendor 代码。
 > 重启后 `GET /health` 应显示 `version: "0.4.0"`；若仍是旧版本，说明
