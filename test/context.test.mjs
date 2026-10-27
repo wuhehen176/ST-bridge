@@ -101,8 +101,8 @@ test('composeInitialPrompt keeps system text and separates the final user turn',
   assert.match(prompt, /SPEC-B/)
   assert.match(prompt, /Old/)
   assert.match(prompt, /Hi there/)
-  assert.match(prompt, /<baobaohui_current_request>\nNew target/)
-  assert.doesNotMatch(prompt, /<baobaohui_current_request>\nOld/)
+  assert.match(prompt, /<st_bridge_current_request>\nNew target/)
+  assert.doesNotMatch(prompt, /<st_bridge_current_request>\nOld/)
 })
 
 test('composeAppendPrompt sends a single user turn verbatim', () => {

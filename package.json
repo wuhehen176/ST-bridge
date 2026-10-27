@@ -1,11 +1,11 @@
 {
-  "name": "baobaohui-bridge",
+  "name": "ST-bridge",
   "version": "0.3.3",
   "private": true,
   "type": "module",
   "description": "DSH persistent Agent session bridge for Tavern plugins",
   "license": "MIT",
-  "author": "baobaohui-bridge contributors",
+  "author": "ST-bridge contributors",
   "keywords": [
     "dsh",
     "dsh-plugin",

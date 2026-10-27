@@ -18,7 +18,7 @@ function engineWithPresets() {
       return undefined
     },
   }
-  return new BridgeEngine(ctx, { agentPreset: 'baobaohui-bridge' }, { listChats: () => [] }, () => {})
+  return new BridgeEngine(ctx, { agentPreset: 'st-bridge' }, { listChats: () => [] }, () => {})
 }
 
 test('bridge setup strips inherited tools/contexts and injects fixed rules', async () => {
@@ -55,8 +55,8 @@ test('bridge setup strips inherited tools/contexts and injects fixed rules', asy
   const result = await assemble({}, {}, async () => assembled)
   assert.deepEqual(result.sections.map(section => section.name), [
     'deployment:persona-prefix',
-    'baobaohui:fixed-rules',
-    'baobaohui:dynamic-system',
+    'st-bridge:fixed-rules',
+    'st-bridge:dynamic-system',
   ])
   assert.match(result.sections[1].text, /PREFIX_RULE/)
   assert.match(result.sections[1].text, /SPEC_RULE/)
@@ -77,10 +77,10 @@ test('bridge setup strips inherited tools/contexts and injects fixed rules', asy
   const supported = await request({}, async () => ({ provider: 'p', model: 'm' }))
   assert.equal(supported.reasoningEffort, 'high')
 
-  const fallback = engine.augmentProtocolAssembly(assembled, 'session-bbh-manual')
+  const fallback = engine.augmentProtocolAssembly(assembled, 'session-st-manual')
   assert.deepEqual(fallback.sections.map(section => section.name), [
     'deployment:persona-prefix',
-    'baobaohui:turn-policy',
+    'st-bridge:turn-policy',
   ])
   assert.deepEqual(fallback.tools, [])
   assert.deepEqual(fallback.contexts, [])

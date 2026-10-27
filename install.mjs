@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * Install the Baobaohui bridge into the current DSH profile.
+ * Install the ST-bridge bridge into the current DSH profile.
  *
  * What it does:
- *   1. Links this directory as <profile>/node_modules/baobaohui-bridge.
+ *   1. Links this directory as <profile>/node_modules/ST-bridge.
  *   2. Appends a managed block to <profile>/cordis.patch.yml containing the
  *      bridge plugin and its text-only agent preset.
  *
@@ -27,8 +27,8 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const PROJECT = dirname(fileURLToPath(import.meta.url))
-const START = '# >>> baobaohui-bridge (managed by install.mjs)'
-const END = '# <<< baobaohui-bridge'
+const START = '# >>> st-bridge (managed by install.mjs)'
+const END = '# <<< st-bridge'
 
 function parseArgs(argv) {
   const args = { port: 43121, cwd: 'D:\\AIGC\\MOSS', token: '', uninstall: false }
@@ -67,11 +67,11 @@ function buildBlock({ port, cwd, token }) {
   const lines = [
     START,
     '- insert:',
-    '    - id: preset-baobaohui-bridge',
+    '    - id: preset-st-bridge',
     "      name: '@deepseek-ai/dsh-agent-preset'",
     '      config:',
-    '        id: baobaohui-bridge',
-    '        name: 酒馆持久会话桥接',
+    '        id: st-bridge',
+    '        name: ST-bridge',
     '        description: 酒馆多插件持久会话专用预设：仅文本，不加载 DSH 工具、技能、酒馆人格或运行时上下文',
     '        order: 40',
     '        plugins:',
@@ -81,13 +81,13 @@ function buildBlock({ port, cwd, token }) {
     '              prefix: |-',
     indent(persona, 16),
     '              includeRuntimeContext: false',
-    '    - id: baobaohui-bridge',
-    '      name: baobaohui-bridge',
+    '    - id: st-bridge',
+    '      name: ST-bridge',
     '      config:',
     "        host: '127.0.0.1'",
     `        port: ${port}`,
     `        cwd: ${yamlQuote(cwd)}`,
-    '        agentPreset: baobaohui-bridge',
+    '        agentPreset: st-bridge',
     '        requestTimeoutMs: 1800000',
     '        maxBodyBytes: 33554432',
     ...(token ? [`        authToken: ${yamlQuote(token)}`] : []),
@@ -108,12 +108,12 @@ function removeBlock(text) {
 function backup(file) {
   if (!existsSync(file)) return
   const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-  copyFileSync(file, `${file}.bak-baobaohui-${stamp}`)
+  copyFileSync(file, `${file}.bak-st-bridge-${stamp}`)
 }
 
 function linkPackage(profile) {
   const modules = join(profile, 'node_modules')
-  const target = join(modules, 'baobaohui-bridge')
+  const target = join(modules, 'ST-bridge')
   mkdirSync(modules, { recursive: true })
   if (existsSync(target)) {
     const stat = lstatSync(target)
@@ -129,7 +129,7 @@ function linkPackage(profile) {
 }
 
 function unlinkPackage(profile) {
-  const target = join(profile, 'node_modules', 'baobaohui-bridge')
+  const target = join(profile, 'node_modules', 'ST-bridge')
   if (!existsSync(target)) return
   const stat = lstatSync(target)
   if (!stat.isSymbolicLink()) {
@@ -169,11 +169,11 @@ function main() {
       profilePackage = undefined
     }
     const isBundle = Boolean(
-      profilePackage?.dependencies?.['baobaohui-bridge']
-      || profilePackage?.dsh?.profile?.bundles?.includes('baobaohui-bridge'),
+      profilePackage?.dependencies?.['ST-bridge']
+      || profilePackage?.dsh?.profile?.bundles?.includes('ST-bridge'),
     )
     if (isBundle) {
-      console.log('检测到 baobaohui-bridge 已作为 profile bundle 安装。')
+      console.log('检测到 ST-bridge 已作为 profile bundle 安装。')
       console.log('不要再运行 install.mjs 的 insert 模式；请在 DSH 插件管理器或 profile package.json 中管理它。')
       return
     }

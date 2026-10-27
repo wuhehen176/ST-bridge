@@ -1,16 +1,16 @@
 /**
- * Baobaohui bridge — settings panel (browser half).
+ * ST-bridge bridge — settings panel (browser half).
  *
  * One settings.section page: service, model, scope/session management,
  * diagnostics, danger zone, and raw settings. All file/DSH work stays in the
  * Host half; this page only calls the RPC channel.
  */
 window.__ModuleLoader__.load({
-  id: 'baobaohui-bridge',
+  id: 'ST-bridge',
   factory(require) {
     const React = require('react')
     const h = React.createElement
-    const CHANNEL = '/baobaohui-bridge'
+    const CHANNEL = '/st-bridge'
 
     const CSS = `
 .bbh { display:grid; gap:16px; width:100%; max-width:860px; min-width:0; font-size:13px; line-height:1.55; color:inherit;
@@ -294,8 +294,8 @@ window.__ModuleLoader__.load({
       return h('section', { className: 'bbh' },
         h('style', null, CSS),
         h('header', { className: 'bbh-head' },
-          h('h2', { className: 'bbh-title' }, '酒馆持久会话'),
-          h('p', { className: 'bbh-sub' }, 'DSH Host 插件 baobaohui-bridge 的服务、模型、scope 与会话管理。'),
+          h('h2', { className: 'bbh-title' }, 'ST-bridge'),
+          h('p', { className: 'bbh-sub' }, 'DSH Host 插件 ST-bridge 的服务、模型、scope 与会话管理。'),
         ),
 
         status === null
@@ -377,7 +377,7 @@ window.__ModuleLoader__.load({
               h('input', { className: 'bbh-input', value: form.model, onChange: e => setField('model', e.target.value) })),
           ),
           h('div', { className: 'bbh-grid2' },
-            h(Field, { label: 'Agent 预设', hint: '默认酒馆持久会话桥接专用预设。' },
+            h(Field, { label: 'Agent 预设', hint: '默认 ST-bridge 专用预设。' },
               h('input', { className: 'bbh-input', value: form.agentPreset, onChange: e => setField('agentPreset', e.target.value) })),
             h(Field, { label: '工作区 cwd', hint: '新会话挂载到该目录对应的工作区。' },
               h('input', { className: 'bbh-input', value: form.cwd, onChange: e => setField('cwd', e.target.value) })),
@@ -506,7 +506,7 @@ window.__ModuleLoader__.load({
 
         status === null ? null : tab === 'advanced' ? h('div', { className: 'bbh-card' },
           h('h3', { className: 'bbh-card-title' }, '原始设置 JSON'),
-          h('p', { className: 'bbh-note' }, '对应 ~/.dsh/baobaohui-bridge/settings.json。authToken 留空表示保持现有值；host/port 修改后需要重启桥接；stateDir 只能在 cordis.patch.yml 中修改。'),
+          h('p', { className: 'bbh-note' }, '对应 ~/.dsh/st-bridge/settings.json。authToken 留空表示保持现有值；host/port 修改后需要重启桥接；stateDir 只能在 cordis.patch.yml 中修改。'),
           h('textarea', { className: 'bbh-textarea', style: { minHeight: '300px' }, value: rawText, onChange: e => setRawText(e.target.value), spellCheck: false }),
           h('div', { className: 'bbh-actions' },
             h('button', { type: 'button', className: 'bbh-btn', disabled: busy, onClick: () => void saveRaw() }, busy ? '保存中…' : '保存原始配置'),
@@ -522,9 +522,9 @@ window.__ModuleLoader__.load({
         const rpcCall = (endpoint, payload) => ctx.connection.rpc.call(CHANNEL, endpoint, payload)
         ctx.slots.inject('settings.section', () => ctx.slots.register({
           name: 'settings.section',
-          id: 'baobaohui-bridge',
+          id: 'st-bridge',
           order: 58,
-          label: () => '酒馆持久会话',
+          label: () => 'ST-bridge',
           inject: () => ({ rpcCall }),
         }, Panel))
       },

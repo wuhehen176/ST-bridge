@@ -1,6 +1,6 @@
-# DSH 酒馆多插件持久会话桥接
+# ST-bridge
 
-供柏宝绘、玉子手机、数据库等酒馆插件调用的本机接口：
+ST-bridge 是供柏宝绘、玉子手机、数据库等酒馆插件调用的本机持久会话桥接：
 `http://127.0.0.1:43121/v1`。
 
 > 更新本项目代码后，需要**完全退出并重启 DSH Desktop**才能加载新版本。
@@ -46,15 +46,15 @@
 要求：DSH Desktop 已正常运行，Node.js 22.19+。
 
 ```bash
-cd D:\AIGC\MOSS\baobaohui-bridge
+cd D:\AIGC\MOSS\ST-bridge
 node install.mjs --cwd D:\AIGC\MOSS --port 43121
 ```
 
 脚本会：
 
-1. 在 `<profile>/node_modules/baobaohui-bridge` 创建指向本目录的链接；
+1. 在 `<profile>/node_modules/ST-bridge` 创建指向本目录的链接；
 2. 备份并修改 `<profile>/cordis.patch.yml`，追加一个受管配置块；
-3. 注册一个只含文本系统提示词的 Agent 预设 `baobaohui-bridge`，不加载
+3. 注册一个只含文本系统提示词的 Agent 预设 `st-bridge`，不加载
    DSH 工具、技能、酒馆人格或运行时上下文。
 
 安装后必须 **完全退出 DSH Desktop**（托盘退出，不是只关窗口），再重新启动。
@@ -82,7 +82,7 @@ node install.mjs --uninstall
 
 ## DSH 设置面板
 
-重启后，DSH「设置」里会出现「酒馆持久会话」页，包含：
+重启后，DSH「设置」里会出现「ST-bridge」页，包含：
 
 - **服务**：启停、host/port、Bearer token、CORS、`allowLegacyPlain`、
   请求超时、请求体上限。host/port 修改后点「保存并重启」。
@@ -97,7 +97,7 @@ node install.mjs --uninstall
   停止前会二次确认。
 - **高级**：直接编辑 `settings.json` 对应的 JSON；不展示真实 token。
 
-设置保存到 `~/.dsh/baobaohui-bridge/settings.json`（权限 0600）。界面里的
+设置保存到 `~/.dsh/st-bridge/settings.json`（权限 0600）。界面里的
 token 输入框留空表示保持现有 token；点「清除」才会移除。
 
 ## 分发与其他电脑
@@ -107,13 +107,13 @@ token 输入框留空表示保持现有 token；点「清除」才会移除。
 
 安装有两种方式，**二选一**：
 
-1. **本地链接安装**（当前 `install.mjs`）：创建 `<profile>/node_modules/baobaohui-bridge`
+1. **本地链接安装**（当前 `install.mjs`）：创建 `<profile>/node_modules/ST-bridge`
    链接，并把 preset/plugin 行写进 `<profile>/cordis.patch.yml`。
 2. **包/bundle 安装**：把本包加入 profile 的 `dsh.profile.bundles`，或通过
    `dsh plugin --profile <name> add <本包>` 安装；`package.json` 已声明
    `dsh.bundle.patch`，`cordis.patch.yml` 会插入同样的 preset/plugin 行。
 
-两种方式不要同时做，否则会出现重复的 `baobaohui-bridge` 行。
+两种方式不要同时做，否则会出现重复的 `st-bridge` 行。
 `install.mjs` 检测到 profile 已把本包列为 dependency/bundle 时会直接停止，避免重复插入。
 
 换机器时：
@@ -286,9 +286,9 @@ dsh_session:
     "client_id":"baibai-image",
     "chat_id":"stable-tavern-chat-identity",
     "task_id":"default",
-    "session_id":"session-bbh-..."
+    "session_id":"session-st-..."
   },
-  "bridge":{"client_id":"baibai-image","chat_id":"stable-tavern-chat-identity","task_id":"default","session_id":"session-bbh-..."},
+  "bridge":{"client_id":"baibai-image","chat_id":"stable-tavern-chat-identity","task_id":"default","session_id":"session-st-..."},
   "usage":{"prompt_tokens":10000,"completion_tokens":1200,"prompt_tokens_details":{"cached_tokens":8000}}
 }
 ```
@@ -298,7 +298,7 @@ dsh_session:
 ```json
 {
   "choices":[],
-  "dsh_session":{"client_id":"baibai-image","chat_id":"...","task_id":"default","session_id":"session-bbh-..."}
+  "dsh_session":{"client_id":"baibai-image","chat_id":"...","task_id":"default","session_id":"session-st-..."}
 }
 ```
 
@@ -554,8 +554,8 @@ curl -s http://127.0.0.1:43121/v1/bridge/reset \
 ### 首次 vs 后续
 
 - 首次请求：`messages` 全部进入新会话。最后一条是 `user` 时，它被放到
-  `<baobaohui_current_request>`；其他消息按原顺序放进
-  `<baobaohui_context>`。
+  `<st_bridge_current_request>`；其他消息按原顺序放进
+  `<st_bridge_context>`。
 - 后续请求：如果完整历史是已记录历史的严格扩展，只把新增的
   `user`/`system` 消息发进同一会话；已发送过的内容不会重复追加。
 - 单条新增 `user` 消息会原样发送，不加包装，尽量保持柏宝绘的原文和格式。
@@ -604,13 +604,13 @@ curl -s http://127.0.0.1:43121/v1/bridge/reset \
 安装脚本写入的配置块：
 
 ```yaml
-- id: baobaohui-bridge
-  name: baobaohui-bridge
+- id: st-bridge
+  name: ST-bridge
   config:
     host: '127.0.0.1'
     port: 43121
     cwd: 'D:\AIGC\MOSS'
-    agentPreset: baobaohui-bridge
+    agentPreset: st-bridge
     requestTimeoutMs: 1800000
     maxBodyBytes: 33554432
 ```
@@ -621,16 +621,16 @@ curl -s http://127.0.0.1:43121/v1/bridge/reset \
 | --- | --- | --- |
 | `provider` / `model` | 空 | 空表示使用 DSH 当前默认模型选择 |
 | `maxTokens` | 空 | 默认输出上限；请求里的 `max_tokens` 优先 |
-| `agentPreset` | `baobaohui-bridge` | Agent 预设 ID |
+| `agentPreset` | `st-bridge` | Agent 预设 ID |
 | `authToken` | 空 | 设置后要求 `Authorization: Bearer` 或 `x-api-key` |
 | `corsOrigins` | 未设置 | 额外允许的 Origin；默认允许本机与浏览器扩展 |
 | `allowRemote` | false | 允许绑定非 127.0.0.1 地址，不建议 |
 | `allowLegacyPlain` | false | 允许不带 `dsh_session` 的旧式普通补全；会创建持久会话 |
 | `allowedClientIds` | `[]` | 非空时只允许列表中的 `client_id`；留空允许所有 |
-| `stateDir` | `~/.dsh/baobaohui-bridge` | 映射和日志目录 |
+| `stateDir` | `~/.dsh/st-bridge` | 映射和日志目录 |
 
-状态文件：`~/.dsh/baobaohui-bridge/state.json`。日志：
-`~/.dsh/baobaohui-bridge/bridge.log`。
+状态文件：`~/.dsh/st-bridge/state.json`。日志：
+`~/.dsh/st-bridge/bridge.log`。
 
 ## 错误
 
@@ -685,7 +685,7 @@ git push -u origin main
 git push --tags
 ```
 
-当前首次提交的作者是占位身份 `baobaohui-bridge`。如需改成你自己的身份：
+当前首次提交的作者是占位身份 `st-bridge`。如需改成你自己的身份：
 
 ```bash
 git config user.name "Your Name"
@@ -698,7 +698,7 @@ git commit --amend --reset-author
 ## 测试
 
 ```bash
-cd D:\AIGC\MOSS\baobaohui-bridge
+cd D:\AIGC\MOSS\ST-bridge
 npm test
 ```
 

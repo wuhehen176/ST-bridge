@@ -165,7 +165,7 @@ test('generate initial stores fixed rules and sends only the dynamic group', asy
     assert.match(result.json.choices[0].message.content, /^OK:/)
     assert.equal(result.json.dsh_session.session_id, result.json.bridge?.session_id ?? result.json.dsh_session.session_id)
     const sessionId = result.json.dsh_session.session_id
-    assert.ok(sessionId.startsWith('session-bbh-'))
+    assert.ok(sessionId.startsWith('session-st-'))
     assert.equal(app.sessions.size, 1)
     const prompt = [...app.sessions.values()][0].prompts[0]
     assert.match(prompt, /dynamic target/)
@@ -362,7 +362,7 @@ test('unknown or foreign session_id returns 410', async () => {
       messages: [{ role: 'user', content: 'x' }],
       dsh_session: dsh({
         chat_id: 'chat-f', request_id: 'r2', action: 'generate',
-        session_id: 'session-bbh-does-not-exist', fixed_message_count: 0, fixed_message_types: [],
+        session_id: 'session-st-does-not-exist', fixed_message_count: 0, fixed_message_types: [],
       }),
     })
     assert.equal(unknown.response.status, 410, unknown.text)

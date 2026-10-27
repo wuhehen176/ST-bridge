@@ -6,7 +6,7 @@ test('browser bundle registers a settings.section page', async () => {
   globalThis.window = {
     __ModuleLoader__: {
       load(entry) {
-        assert.equal(entry.id, 'baobaohui-bridge')
+        assert.equal(entry.id, 'ST-bridge')
         factory = entry.factory
       },
     },
@@ -40,7 +40,7 @@ test('browser bundle registers a settings.section page', async () => {
   plugin.apply(ctx)
   assert.ok(section)
   assert.equal(section.spec.name, 'settings.section')
-  assert.equal(section.spec.id, 'baobaohui-bridge')
+  assert.equal(section.spec.id, 'st-bridge')
   assert.equal(typeof section.spec.label(), 'string')
   assert.equal(typeof section.component, 'function')
 })

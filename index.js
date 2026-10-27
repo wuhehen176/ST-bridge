@@ -1,5 +1,5 @@
 /**
- * Baobaohui bridge — a DSH host plugin.
+ * ST-bridge bridge — a DSH host plugin.
  *
  * It owns a small localhost HTTP server and maps each frontend chat_id to a
  * real DSH Agent session. Sessions are created through ctx.agents, so they are
@@ -14,7 +14,7 @@ import { createBridgeServer, VERSION } from './lib/server.js'
 import { BridgeStore } from './lib/store.js'
 import { clampInteger, ensureDir } from './lib/util.js'
 
-export const name = 'baobaohui-bridge'
+export const name = 'ST-bridge'
 
 export const inject = [
   'agents',
@@ -37,13 +37,13 @@ function normalizeConfig(raw) {
     port: clampInteger(config.port, 0, 65535) ?? 43121,
     stateDir: typeof config.stateDir === 'string' && config.stateDir.trim() !== ''
       ? config.stateDir
-      : join(dshHome, 'baobaohui-bridge'),
+      : join(dshHome, 'st-bridge'),
     cwd: typeof config.cwd === 'string' && config.cwd.trim() !== ''
       ? config.cwd
       : (process.env.DSH_CWD || process.cwd()),
     agentPreset: typeof config.agentPreset === 'string' && config.agentPreset.trim() !== ''
       ? config.agentPreset.trim()
-      : 'baobaohui-bridge',
+      : 'st-bridge',
     provider: typeof config.provider === 'string' ? config.provider.trim() : '',
     model: typeof config.model === 'string' ? config.model.trim() : '',
     maxTokens: clampInteger(config.maxTokens, 1, Number.MAX_SAFE_INTEGER),
@@ -130,7 +130,7 @@ export function apply(ctx, rawConfig) {
       // A bad bridge config must not take the whole DSH host down. The error is
       // visible in the log and through the plugin status.
       try {
-        ctx.logger?.(name)?.error?.(`baobaohui-bridge 启动失败: ${error instanceof Error ? error.message : String(error)}`)
+        ctx.logger?.(name)?.error?.(`ST-bridge 启动失败: ${error instanceof Error ? error.message : String(error)}`)
       } catch {
         // Ignore logger failures.
       }
@@ -153,7 +153,7 @@ export function apply(ctx, rawConfig) {
       try { resources?.store?.flush() } catch { /* ignore */ }
       resources?.log?.('[bridge] 已停止')
     }
-  }, 'baobaohui-bridge.server')
+  }, 'st-bridge.server')
 }
 
 export { normalizeConfig }

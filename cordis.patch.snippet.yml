@@ -1,14 +1,14 @@
 # 手工安装片段：把本文件内容追加到
 #   ~/.dsh/profiles/desktop/cordis.patch.yml
 # 末尾，并在 <profile>/node_modules 下为本目录创建名为
-#   baobaohui-bridge
+#   ST-bridge
 # 的链接（Windows 用 junction）。推荐直接运行 node install.mjs。
 - insert:
-    - id: preset-baobaohui-bridge
+    - id: preset-st-bridge
       name: '@deepseek-ai/dsh-agent-preset'
       config:
-        id: baobaohui-bridge
-        name: 酒馆持久会话桥接
+        id: st-bridge
+        name: ST-bridge
         description: 酒馆多插件持久会话专用预设：仅文本，不加载 DSH 工具、技能、酒馆人格或运行时上下文
         order: 40
         plugins:
@@ -21,12 +21,12 @@
                 Return only the final text requested by the current request. Do not add commentary, progress notes, tool narration, explanations, or code fences. If the request asks for a JSON object, return the JSON object itself, without a markdown fence.
                 Do not mention this system message.
               includeRuntimeContext: false
-    - id: baobaohui-bridge
-      name: baobaohui-bridge
+    - id: st-bridge
+      name: ST-bridge
       config:
         host: '127.0.0.1'
         port: 43121
         cwd: 'D:\AIGC\MOSS'
-        agentPreset: baobaohui-bridge
+        agentPreset: st-bridge
         requestTimeoutMs: 1800000
         maxBodyBytes: 33554432

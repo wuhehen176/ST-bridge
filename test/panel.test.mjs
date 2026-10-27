@@ -123,7 +123,7 @@ test('registerPanelRpc uses the DSH connection channel when available', async ()
   }
   const panel = { call: async (endpoint, payload) => ({ ok: true, value: { endpoint, payload } }) }
   const dispose = registerPanelRpc(ctx, panel, () => {})
-  assert.equal(channel, '/baobaohui-bridge')
+  assert.equal(channel, '/st-bridge')
   assert.equal(typeof handler, 'function')
   const result = await handler('status', { a: 1 })
   assert.equal(result.value.endpoint, 'status')
@@ -136,7 +136,7 @@ test('PanelController actions require confirmation for destructive operations', 
   try {
     const config = baseConfig(dir)
     const chat = {
-      clientId: 'yuzi-phone', taskId: 'qq', chatId: 'chat-1', sessionId: 'session-bbh-x',
+      clientId: 'yuzi-phone', taskId: 'qq', chatId: 'chat-1', sessionId: 'session-st-x',
       title: '玉子手机 · 测试', fixedRules: [{ type: 'spec', role: 'system', text: 'RULE' }],
       knownMessages: [], previousSessions: [], updatedAt: new Date().toISOString(),
     }
