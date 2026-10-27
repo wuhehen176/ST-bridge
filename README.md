@@ -87,7 +87,8 @@ node install.mjs --uninstall
 - **服务**：启停、host/port、Bearer token、CORS、`allowLegacyPlain`、
   请求超时、请求体上限。host/port 修改后点「保存并重启」。
 - **模型**：provider/model（留空跟随 DSH 当前默认；要填就同时填）、Agent 预设、
-  cwd、默认 `max_tokens`。修改只影响新创建/重新恢复的会话。
+  cwd、默认 `max_tokens`。修改只影响新创建/重新恢复的会话。`reasoning_effort`
+  只在模型支持该档位时传递；不支持会自动忽略，不会让整个回合报错。
 - **客户端**：按 `client_id + chat_id + task_id` 列出绑定，支持筛选、允许
   client_id 列表、查看当前固定规则、清除规则、重置绑定。重置不删除 DSH
   会话历史。
@@ -626,6 +627,7 @@ curl -s http://127.0.0.1:43121/v1/bridge/reset \
 | 400 | `invalid_client_id` / `invalid_task_id` | 插件身份或子任务标识不合法 |
 | 400 | `unsupported_tool_mode` | 调用了原生工具协议 |
 | 400 | `unsupported_response_format` | 请求了严格 JSON schema 约束 |
+| 400 | `unsupported_reasoning_effort` | 模型不支持该思考强度；桥接会按模型能力过滤 |
 | 400 | `invalid_fixed_count` / `fixed_types_mismatch` / `invalid_fixed_type` | 固定组字段不合法 |
 | 400 | `reset_messages_not_empty` / `empty_dynamic_group` / `missing_user_message` | action 与 messages 不匹配 |
 | 401 | `unauthorized` | 配置了 token 但请求未带/带错 |

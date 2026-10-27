@@ -12,6 +12,9 @@ function engineWithPresets() {
       if (name === 'agentDefaultModel') {
         return { currentSelection: () => ({ provider: 'p', model: 'm' }) }
       }
+      if (name === 'llm') {
+        return { resolveModelInfo: async () => ({ reasoning: { efforts: [{ id: 'high' }] } }) }
+      }
       return undefined
     },
   }
@@ -66,6 +69,14 @@ test('bridge setup strips inherited tools/contexts and injects fixed rules', asy
   assert.equal(requestResult.temperature, 0.6)
   assert.equal(requestResult.maxTokens, 512)
 
+  engine.runtimeFor(sessionId).params = { reasoningEffort: 'max' }
+  const unsupported = await request({}, async () => ({ provider: 'p', model: 'm' }))
+  assert.equal(unsupported.reasoningEffort, undefined)
+
+  engine.runtimeFor(sessionId).params = { reasoningEffort: 'high' }
+  const supported = await request({}, async () => ({ provider: 'p', model: 'm' }))
+  assert.equal(supported.reasoningEffort, 'high')
+
   const fallback = engine.augmentProtocolAssembly(assembled, 'session-bbh-manual')
   assert.deepEqual(fallback.sections.map(section => section.name), [
     'deployment:persona-prefix',
@@ -73,4 +84,15 @@ test('bridge setup strips inherited tools/contexts and injects fixed rules', asy
   ])
   assert.deepEqual(fallback.tools, [])
   assert.deepEqual(fallback.contexts, [])
+})
+
+test('turnFailure maps unsupported reasoning effort to a clear 400', () => {
+  const engine = engineWithPresets()
+  const error = engine.turnFailure({
+    ok: false,
+    message: 'provider "lunaroute" model "deepseek-4.1-flash" does not support reasoning effort "max"',
+    code: 'UNSUPPORTED_REASONING_EFFORT',
+  })
+  assert.equal(error.status, 400)
+  assert.equal(error.code, 'unsupported_reasoning_effort')
 })
