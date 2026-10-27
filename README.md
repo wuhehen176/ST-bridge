@@ -697,12 +697,11 @@ git push -u origin main
 git push --tags
 ```
 
-当前首次提交的作者是占位身份 `ST-bridge`。如需改成你自己的身份：
+提交作者由本机 Git 身份决定。后续提交如需使用自己的身份：
 
 ```bash
 git config user.name "Your Name"
 git config user.email "you@example.com"
-git commit --amend --reset-author
 ```
 
 仓库里不要提交 `settings.json`、`state.json`、`*.log`；`.gitignore` 已排除。
