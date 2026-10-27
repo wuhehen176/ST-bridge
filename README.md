@@ -5,7 +5,7 @@
 
 > 更新本项目代码后，需要**完全退出并重启 DSH Desktop**才能加载新版本。
 > DSH Host 插件不会热替换已经加载的 vendor 代码。
-> 重启后 `GET /health` 应显示 `version: "0.3.2"`；若仍是旧版本，说明
+> 重启后 `GET /health` 应显示 `version: "0.3.3"`；若仍是旧版本，说明
 > 43121 还是旧进程。
 
 这不是一个直接转发模型 API 的代理，而是一个 **DSH Host 插件**。每个酒馆
@@ -197,6 +197,10 @@ dsh_session:
 
 注意：`chat_id` 写死意味着所有数据库调用共用一个持久会话。需要按酒馆聊天隔离时，
 必须让客户端把 `chat_id` 换成动态值，而不是写死。
+
+同一 `chat_id` 的后续请求即使不传 `session_id`，也会复用已绑定的会话；只有固定组
+内容变化，或旧会话返回 410 时，才会重建。这样静态 YAML 预设不会每次调用都新开
+一个 DSH 聊天。
 
 `client_id` / `task_id` 也可放在顶层 `body.client_id` / `body.task_id` 或
 `x-client-id` / `x-task-id` 头；`chat_id` / `request_id` 仍支持顶层与请求头

@@ -267,6 +267,28 @@ test('dsh_session without request_id gets a stable generated id', async () => {
   }
 })
 
+test('static dsh_session without session_id reuses the chat binding', async () => {
+  const app = await start()
+  try {
+    const first = await postDsh(app.base, {
+      messages: [{ role: 'user', content: 'first database call' }],
+      dsh_session: dsh({ chat_id: 'db-static', action: 'generate' }),
+    })
+    assert.equal(first.response.status, 200, first.text)
+    const firstId = first.json.dsh_session.session_id
+
+    const second = await postDsh(app.base, {
+      messages: [{ role: 'user', content: 'second database call' }],
+      dsh_session: dsh({ chat_id: 'db-static', action: 'generate' }),
+    })
+    assert.equal(second.response.status, 200, second.text)
+    assert.equal(second.json.dsh_session.session_id, firstId)
+    assert.equal(app.sessions.size, 1)
+  } finally {
+    await app.close()
+  }
+})
+
 test('sync_rules without session_id creates an empty bound session', async () => {
   const app = await start()
   try {
