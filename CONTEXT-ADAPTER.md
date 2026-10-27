@@ -290,6 +290,19 @@ DSH 设置 → ST-bridge → 服务
 - 一旦 DSH 会话记录了本轮 user 消息，就不再重试，避免重复回合；
 - 重试使用同一个 `request_id`，幂等记录保留。
 
+#### 提供方会话阻断（0.9.1）
+
+`qoder: Session blocked, Please clear context try again (406/model_error)` 这类
+错误不再被当成 DSH 上下文超限：
+
+- 返回 `502 provider_session_blocked`；
+- 不触发 `contextOverflow` 重建；
+- 不纳入瞬时错误重试；
+- 需要清理提供方会话、切换模型或重启 DSH 才能解除。
+
+真正的上下文超限仍匹配 `context length`、`too many tokens`、`token limit`、
+`上下文超限` 等明确措辞。
+
 ### 追加包装格式（0.9.0）
 
 多消息追加默认使用短 nonce 分隔，避免与酒馆正文格式相撞：

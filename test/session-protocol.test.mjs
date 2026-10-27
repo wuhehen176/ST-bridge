@@ -31,6 +31,11 @@ class MockAgent {
       }
       if (this.failMode === 'context') {
         this.failMode = null
+        this.events.push({ type: 'turn/end', data: { turn, reason: { kind: 'error', error: { code: 'model_error', message: 'context length exceeded: maximum context is 200000 tokens' } } } })
+        return
+      }
+      if (this.failMode === 'blocked') {
+        this.failMode = null
         this.events.push({ type: 'turn/end', data: { turn, reason: { kind: 'error', error: { code: 'model_error', message: 'qoder: Session blocked, Please clear context try again (406/model_error)' } } } })
         return
       }
@@ -1198,5 +1203,20 @@ test('engine passes appendFormat=nonce to multi-message appends', async () => {
     const prompt = app.sessions.get(sessionId).prompts.at(-1)
     assert.match(prompt, /<<<STB-ABCDEF12>>>/)
     assert.equal(prompt.includes('ST_BRIDGE_MESSAGE'), false)
+  } finally { await app.close() }
+})
+
+test('provider session blocked is not treated as context overflow', async () => {
+  const app = await start()
+  try {
+    app.engine.config.contextOverflow = 'recreate'
+    const first = await postDsh(app.base, { messages: fixedMessages(), dsh_session: dsh({ chat_id: 'blocked-chat', request_id: 'bl-1', action: 'generate', fixed_message_count: 2, fixed_message_types: ['prefix', 'spec'] }) })
+    assert.equal(first.response.status, 200, first.text)
+    const oldId = first.json.dsh_session.session_id
+    app.sessions.get(oldId).failMode = 'blocked'
+    const second = await postDsh(app.base, { messages: fixedMessages(), dsh_session: dsh({ chat_id: 'blocked-chat', request_id: 'bl-2', action: 'generate', fixed_message_count: 2, fixed_message_types: ['prefix', 'spec'] }) })
+    assert.equal(second.response.status, 502, second.text)
+    assert.equal(second.json.error.code, 'provider_session_blocked')
+    assert.equal(app.sessions.size, 1)
   } finally { await app.close() }
 })
