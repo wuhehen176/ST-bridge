@@ -5,7 +5,7 @@
 
 > 更新本项目代码后，需要**完全退出并重启 DSH Desktop**才能加载新版本。
 > DSH Host 插件不会热替换已经加载的 vendor 代码。
-> 重启后 `GET /health` 应显示 `version: "0.3.1"`；若仍是旧版本，说明
+> 重启后 `GET /health` 应显示 `version: "0.3.2"`；若仍是旧版本，说明
 > 43121 还是旧进程。
 
 这不是一个直接转发模型 API 的代理，而是一个 **DSH Host 插件**。每个酒馆
@@ -179,6 +179,24 @@ DSH 用 `fixed_message_count` / `fixed_message_types` 把 `messages` 切成
 | `fixed_message_count` | `messages` 开头多少条属于固定组 |
 | `fixed_message_types` | 与固定组逐条对应：`prefix`、`spec`、`contract`、`check` |
 | `target` | 仅生成时携带的元数据；桥接只记录，不放进正文 |
+
+如果客户端只能填静态 YAML body、无法生成 `request_id`，可以省略它；桥接会用
+`chat_id + action + messages` 的 SHA-256 自动生成 `auto-...`。相同 body 重试仍然
+幂等，适合数据库这类固定预设：
+
+```yaml
+dsh_session:
+  protocol_version: 1
+  client_id: shujuku
+  chat_id: shujuku-db
+  task_id: database
+  action: generate
+  fixed_message_count: 0
+  fixed_message_types: []
+```
+
+注意：`chat_id` 写死意味着所有数据库调用共用一个持久会话。需要按酒馆聊天隔离时，
+必须让客户端把 `chat_id` 换成动态值，而不是写死。
 
 `client_id` / `task_id` 也可放在顶层 `body.client_id` / `body.task_id` 或
 `x-client-id` / `x-task-id` 头；`chat_id` / `request_id` 仍支持顶层与请求头

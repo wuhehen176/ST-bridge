@@ -241,6 +241,32 @@ test('sync_rules updates fixed rules without running a model turn', async () => 
   }
 })
 
+test('dsh_session without request_id gets a stable generated id', async () => {
+  const app = await start()
+  try {
+    const body = {
+      model: 'dsh-default',
+      messages: fixedMessages(),
+      dsh_session: dsh({
+        chat_id: 'chat-auto',
+        action: 'generate',
+        fixed_message_count: 0,
+        fixed_message_types: [],
+      }),
+    }
+    const first = await postDsh(app.base, body)
+    assert.equal(first.response.status, 200, first.text)
+    const autoId = first.json.dsh_session.request_id
+    assert.match(autoId, /^auto-[a-f0-9]{32}$/)
+    const second = await postDsh(app.base, body)
+    assert.equal(second.response.status, 200, second.text)
+    assert.equal(second.json.dsh_session.request_id, autoId)
+    assert.equal(second.json.bridge.idempotent, true)
+  } finally {
+    await app.close()
+  }
+})
+
 test('sync_rules without session_id creates an empty bound session', async () => {
   const app = await start()
   try {
