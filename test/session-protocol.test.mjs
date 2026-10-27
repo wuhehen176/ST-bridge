@@ -1,0 +1,602 @@
+import assert from 'node:assert/strict'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import test from 'node:test'
+import { BridgeEngine } from '../lib/engine.js'
+import { createBridgeServer } from '../lib/server.js'
+import { BridgeStore } from '../lib/store.js'
+
+class MockAgent {
+  constructor(sessionId) {
+    this.session = { id: sessionId, snapshotEvents: () => this.events }
+    this.events = []
+    this.turn = 0
+    this.prompts = []
+  }
+
+  followup(message) {
+    const prompt = message?.content?.[0]?.text ?? ''
+    this.prompts.push(prompt)
+    const turn = ++this.turn
+    setTimeout(() => {
+      this.events.push({ type: 'turn/start', data: { turn } })
+      this.events.push({ type: 'user/message', data: { id: message.id, source: message.source } })
+      this.events.push({
+        type: 'assistant/message',
+        data: {
+          turn,
+          message: { content: [{ type: 'text', text: `OK:${prompt.slice(-24)}` }] },
+          usage: { prompt_tokens: 12, completion_tokens: 4, prompt_tokens_details: { cached_tokens: 3 } },
+        },
+      })
+      this.events.push({ type: 'turn/end', data: { turn, reason: { kind: 'completed' } } })
+    }, 10)
+  }
+}
+
+function makeHost() {
+  const sessions = new Map()
+  const host = {
+    sessions,
+    agents: {
+      async create(options) {
+        if (sessions.has(options.sessionId)) throw new Error(`session ${options.sessionId} already exists`)
+        const agent = new MockAgent(options.sessionId)
+        sessions.set(options.sessionId, agent)
+        await options.setup?.({ on: () => {} }, agent)
+        return { agent, dispose: async () => {} }
+      },
+      get(id) {
+        return sessions.get(id)
+      },
+      async resume(options) {
+        const agent = sessions.get(options.resumeSessionId)
+        if (!agent) throw new Error(`session ${options.resumeSessionId} not found`)
+        await options.setup?.({ on: () => {} }, agent)
+        return { agent, dispose: async () => {} }
+      },
+      withoutInitiator(operation) {
+        return operation()
+      },
+    },
+    services: {
+      agentDefaultModel: { currentSelection: () => ({ provider: 'mock', model: 'mock-model' }) },
+      agentPresets: { mount: async () => {} },
+      sessionController: {
+        inspect: async sessionId => {
+          const agent = sessions.get(sessionId)
+          if (!agent) throw new Error(`session ${sessionId} not found`)
+          return { events: agent.events }
+        },
+      },
+      sessionTitle: { rename: () => {} },
+      workspaceRegistry: { list: () => [{ path: process.cwd(), attachSession: async () => {} }] },
+    },
+    get(name) {
+      return this.services[name]
+    },
+    logger: () => ({ info: () => {}, error: () => {} }),
+  }
+  return host
+}
+
+function makeConfig(cwd) {
+  return {
+    host: '127.0.0.1',
+    port: 0,
+    cwd,
+    agentPreset: 'test-preset',
+    provider: '',
+    model: '',
+    maxTokens: undefined,
+    requestTimeoutMs: 8_000,
+    maxBodyBytes: 2 * 1024 * 1024,
+    authToken: '',
+    corsOrigins: undefined,
+    allowExtensionOrigins: true,
+    allowNullOrigin: false,
+    allowLegacyPlain: false,
+  }
+}
+
+async function start() {
+  const dir = mkdtempSync(join(tmpdir(), 'bbh-session-'))
+  const host = makeHost()
+  const cfg = makeConfig(dir)
+  const store = new BridgeStore(join(dir, 'state.json'))
+  const engine = new BridgeEngine(host, cfg, store, () => {})
+  const bridge = createBridgeServer({ engine, config: cfg, log: () => {} })
+  const port = await bridge.listen()
+  return {
+    base: `http://127.0.0.1:${port}`,
+    engine,
+    host,
+    sessions: host.sessions,
+    close: async () => {
+      await bridge.close()
+      rmSync(dir, { recursive: true, force: true })
+    },
+  }
+}
+
+async function postDsh(base, body) {
+  const response = await fetch(`${base}/v1/chat/completions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  const text = await response.text()
+  let json
+  try { json = JSON.parse(text) } catch { json = text }
+  return { response, json, text }
+}
+
+function dsh(extra) {
+  return { protocol_version: 1, ...extra }
+}
+
+function fixedMessages() {
+  return [
+    { role: 'system', content: 'PREFIX_SECRET' },
+    { role: 'system', content: 'SPEC_SECRET' },
+    { role: 'user', content: 'dynamic target' },
+  ]
+}
+
+test('generate initial stores fixed rules and sends only the dynamic group', async () => {
+  const app = await start()
+  try {
+    const result = await postDsh(app.base, {
+      model: 'dsh-default',
+      messages: fixedMessages(),
+      temperature: 0.6,
+      max_tokens: 512,
+      dsh_session: dsh({
+        chat_id: 'chat-a',
+        request_id: 'r1',
+        action: 'generate',
+        fixed_message_count: 2,
+        fixed_message_types: ['prefix', 'spec'],
+        target: { floor: 0, swipe_id: null, revision: 'TARGET_SECRET' },
+      }),
+    })
+    assert.equal(result.response.status, 200, result.text)
+    assert.match(result.json.choices[0].message.content, /^OK:/)
+    assert.equal(result.json.dsh_session.session_id, result.json.bridge?.session_id ?? result.json.dsh_session.session_id)
+    const sessionId = result.json.dsh_session.session_id
+    assert.ok(sessionId.startsWith('session-bbh-'))
+    assert.equal(app.sessions.size, 1)
+    const prompt = [...app.sessions.values()][0].prompts[0]
+    assert.match(prompt, /dynamic target/)
+    assert.doesNotMatch(prompt, /PREFIX_SECRET|SPEC_SECRET|TARGET_SECRET/)
+    assert.deepEqual(app.engine.runtimes.get(sessionId).fixedRules.map(rule => rule.type), ['prefix', 'spec'])
+    assert.deepEqual(result.json.usage, {
+      prompt_tokens: 12,
+      completion_tokens: 4,
+      prompt_tokens_details: { cached_tokens: 3 },
+    })
+  } finally {
+    await app.close()
+  }
+})
+
+test('generate with session_id appends only dynamic messages and keeps session', async () => {
+  const app = await start()
+  try {
+    const first = await postDsh(app.base, {
+      messages: fixedMessages(),
+      dsh_session: dsh({
+        chat_id: 'chat-b', request_id: 'r1', action: 'generate',
+        fixed_message_count: 2, fixed_message_types: ['prefix', 'spec'],
+      }),
+    })
+    const sessionId = first.json.dsh_session.session_id
+    const before = app.sessions.get(sessionId).prompts.length
+
+    const second = await postDsh(app.base, {
+      messages: [{ role: 'user', content: 'second turn' }],
+      dsh_session: dsh({
+        chat_id: 'chat-b', request_id: 'r2', action: 'generate',
+        session_id: sessionId, fixed_message_count: 0, fixed_message_types: [],
+      }),
+    })
+    assert.equal(second.response.status, 200, second.text)
+    assert.equal(second.json.dsh_session.session_id, sessionId)
+    assert.equal(app.sessions.get(sessionId).prompts.length, before + 1)
+    assert.equal(app.sessions.get(sessionId).prompts.at(-1), 'second turn')
+  } finally {
+    await app.close()
+  }
+})
+
+test('sync_rules updates fixed rules without running a model turn', async () => {
+  const app = await start()
+  try {
+    const first = await postDsh(app.base, {
+      messages: fixedMessages(),
+      dsh_session: dsh({
+        chat_id: 'chat-c', request_id: 'r1', action: 'generate',
+        fixed_message_count: 2, fixed_message_types: ['prefix', 'spec'],
+      }),
+    })
+    const sessionId = first.json.dsh_session.session_id
+    const turns = app.sessions.get(sessionId).turn
+
+    const sync = await postDsh(app.base, {
+      messages: [{ role: 'system', content: 'NEW_SPEC' }],
+      dsh_session: dsh({
+        chat_id: 'chat-c', request_id: 'r2', action: 'sync_rules',
+        session_id: sessionId, fixed_message_count: 1, fixed_message_types: ['spec'],
+      }),
+    })
+    assert.equal(sync.response.status, 200, sync.text)
+    assert.deepEqual(sync.json.choices, [])
+    assert.equal(sync.json.dsh_session.session_id, sessionId)
+    assert.equal(app.sessions.get(sessionId).turn, turns)
+    assert.deepEqual(app.engine.runtimes.get(sessionId).fixedRules.map(rule => rule.type), ['spec'])
+    assert.match(app.engine.runtimes.get(sessionId).fixedRules[0].text, /NEW_SPEC/)
+  } finally {
+    await app.close()
+  }
+})
+
+test('sync_rules without session_id creates an empty bound session', async () => {
+  const app = await start()
+  try {
+    const sync = await postDsh(app.base, {
+      messages: [{ role: 'system', content: 'PREFIX' }],
+      dsh_session: dsh({
+        chat_id: 'chat-d', request_id: 'r1', action: 'sync_rules',
+        fixed_message_count: 1, fixed_message_types: ['prefix'],
+      }),
+    })
+    assert.equal(sync.response.status, 200, sync.text)
+    assert.deepEqual(sync.json.choices, [])
+    const sessionId = sync.json.dsh_session.session_id
+    assert.ok(sessionId)
+    assert.equal(app.sessions.get(sessionId).turn, 0)
+    assert.equal(app.sessions.get(sessionId).prompts.length, 0)
+  } finally {
+    await app.close()
+  }
+})
+
+test('reset creates a new session and keeps the old one', async () => {
+  const app = await start()
+  try {
+    const first = await postDsh(app.base, {
+      messages: fixedMessages(),
+      dsh_session: dsh({
+        chat_id: 'chat-e', request_id: 'r1', action: 'generate',
+        fixed_message_count: 2, fixed_message_types: ['prefix', 'spec'],
+      }),
+    })
+    const oldId = first.json.dsh_session.session_id
+    const reset = await postDsh(app.base, {
+      messages: [],
+      dsh_session: dsh({ chat_id: 'chat-e', request_id: 'r2', action: 'reset' }),
+    })
+    assert.equal(reset.response.status, 200, reset.text)
+    assert.deepEqual(reset.json.choices, [])
+    const newId = reset.json.dsh_session.session_id
+    assert.notEqual(newId, oldId)
+    assert.ok(app.sessions.has(oldId))
+    assert.ok(app.sessions.has(newId))
+
+    const again = await postDsh(app.base, {
+      messages: fixedMessages(),
+      dsh_session: dsh({
+        chat_id: 'chat-e', request_id: 'r3', action: 'generate',
+        session_id: newId, fixed_message_count: 2, fixed_message_types: ['prefix', 'spec'],
+      }),
+    })
+    assert.equal(again.response.status, 200, again.text)
+    assert.equal(again.json.dsh_session.session_id, newId)
+  } finally {
+    await app.close()
+  }
+})
+
+test('unknown or foreign session_id returns 410', async () => {
+  const app = await start()
+  try {
+    const first = await postDsh(app.base, {
+      messages: fixedMessages(),
+      dsh_session: dsh({
+        chat_id: 'chat-f', request_id: 'r1', action: 'generate',
+        fixed_message_count: 2, fixed_message_types: ['prefix', 'spec'],
+      }),
+    })
+    const sessionId = first.json.dsh_session.session_id
+
+    const unknown = await postDsh(app.base, {
+      messages: [{ role: 'user', content: 'x' }],
+      dsh_session: dsh({
+        chat_id: 'chat-f', request_id: 'r2', action: 'generate',
+        session_id: 'session-bbh-does-not-exist', fixed_message_count: 0, fixed_message_types: [],
+      }),
+    })
+    assert.equal(unknown.response.status, 410, unknown.text)
+    assert.equal(unknown.json.error.code, 'session_gone')
+
+    const foreign = await postDsh(app.base, {
+      messages: [{ role: 'user', content: 'x' }],
+      dsh_session: dsh({
+        chat_id: 'chat-g', request_id: 'r3', action: 'generate',
+        session_id: sessionId, fixed_message_count: 0, fixed_message_types: [],
+      }),
+    })
+    assert.equal(foreign.response.status, 410, foreign.text)
+  } finally {
+    await app.close()
+  }
+})
+
+test('410 can be retried with the same request_id and a fresh initialization', async () => {
+  const app = await start()
+  try {
+    const first = await postDsh(app.base, {
+      messages: fixedMessages(),
+      dsh_session: dsh({
+        chat_id: 'chat-410', request_id: 'r1', action: 'generate',
+        fixed_message_count: 2, fixed_message_types: ['prefix', 'spec'],
+      }),
+    })
+    const staleId = first.json.dsh_session.session_id
+    app.sessions.delete(staleId)
+
+    const gone = await postDsh(app.base, {
+      messages: fixedMessages(),
+      dsh_session: dsh({
+        chat_id: 'chat-410', request_id: 'r2', action: 'generate',
+        session_id: staleId, fixed_message_count: 2, fixed_message_types: ['prefix', 'spec'],
+      }),
+    })
+    assert.equal(gone.response.status, 410, gone.text)
+
+    const retry = await postDsh(app.base, {
+      messages: fixedMessages(),
+      dsh_session: dsh({
+        chat_id: 'chat-410', request_id: 'r2', action: 'generate',
+        fixed_message_count: 2, fixed_message_types: ['prefix', 'spec'],
+      }),
+    })
+    assert.equal(retry.response.status, 200, retry.text)
+    assert.notEqual(retry.json.dsh_session.session_id, staleId)
+  } finally {
+    await app.close()
+  }
+})
+
+test('same request_id returns the same result without a second turn', async () => {
+  const app = await start()
+  try {
+    const body = {
+      messages: fixedMessages(),
+      dsh_session: dsh({
+        chat_id: 'chat-h', request_id: 'same', action: 'generate',
+        fixed_message_count: 2, fixed_message_types: ['prefix', 'spec'],
+      }),
+    }
+    const first = await postDsh(app.base, body)
+    const sessionId = first.json.dsh_session.session_id
+    const turns = app.sessions.get(sessionId).turn
+    const second = await postDsh(app.base, body)
+    assert.equal(second.response.status, 200, second.text)
+    assert.equal(second.json.dsh_session.session_id, sessionId)
+    assert.equal(second.json.choices[0].message.content, first.json.choices[0].message.content)
+    assert.equal(app.sessions.get(sessionId).turn, turns)
+  } finally {
+    await app.close()
+  }
+})
+
+test('client_id and task_id isolate sessions even with the same chat_id', async () => {
+  const app = await start()
+  try {
+    const baibai = await postDsh(app.base, {
+      messages: fixedMessages(),
+      dsh_session: dsh({
+        client_id: 'baibai-image', chat_id: 'shared-chat', request_id: 'same-r',
+        action: 'generate', fixed_message_count: 2, fixed_message_types: ['prefix', 'spec'],
+      }),
+    })
+    const yuzi = await postDsh(app.base, {
+      messages: fixedMessages(),
+      dsh_session: dsh({
+        client_id: 'yuzi-phone', chat_id: 'shared-chat', request_id: 'same-r',
+        action: 'generate', fixed_message_count: 2, fixed_message_types: ['prefix', 'spec'],
+      }),
+    })
+    const yuziTask = await postDsh(app.base, {
+      messages: fixedMessages(),
+      dsh_session: dsh({
+        client_id: 'yuzi-phone', chat_id: 'shared-chat', task_id: 'qq',
+        request_id: 'same-r', action: 'generate',
+        fixed_message_count: 2, fixed_message_types: ['prefix', 'spec'],
+      }),
+    })
+    assert.equal(baibai.response.status, 200, baibai.text)
+    assert.equal(yuzi.response.status, 200, yuzi.text)
+    assert.equal(yuziTask.response.status, 200, yuziTask.text)
+    const ids = new Set([
+      baibai.json.dsh_session.session_id,
+      yuzi.json.dsh_session.session_id,
+      yuziTask.json.dsh_session.session_id,
+    ])
+    assert.equal(ids.size, 3)
+    assert.equal(baibai.json.dsh_session.client_id, 'baibai-image')
+    assert.equal(yuzi.json.dsh_session.task_id, 'default')
+    assert.equal(yuziTask.json.dsh_session.task_id, 'qq')
+    assert.ok(yuziTask.json.bridge)
+  } finally {
+    await app.close()
+  }
+})
+
+test('allowedClientIds blocks other plugins with 403', async () => {
+  const app = await start()
+  try {
+    app.engine.config.allowedClientIds = ['baibai-image']
+    const allowed = await postDsh(app.base, {
+      messages: fixedMessages(),
+      dsh_session: dsh({
+        client_id: 'baibai-image', chat_id: 'allow-chat', request_id: 'r1',
+        action: 'generate', fixed_message_count: 2, fixed_message_types: ['prefix', 'spec'],
+      }),
+    })
+    assert.equal(allowed.response.status, 200, allowed.text)
+    const blocked = await postDsh(app.base, {
+      messages: fixedMessages(),
+      dsh_session: dsh({
+        client_id: 'yuzi-phone', chat_id: 'allow-chat', request_id: 'r2',
+        action: 'generate', fixed_message_count: 2, fixed_message_types: ['prefix', 'spec'],
+      }),
+    })
+    assert.equal(blocked.response.status, 403, blocked.text)
+    assert.equal(blocked.json.error.code, 'client_not_allowed')
+  } finally {
+    await app.close()
+  }
+})
+
+test('explicit baibai-image/default keeps the old chat_id binding', async () => {
+  const app = await start()
+  try {
+    const legacy = await postDsh(app.base, {
+      messages: fixedMessages(),
+      dsh_session: dsh({
+        chat_id: 'legacy-alias', request_id: 'r1', action: 'generate',
+        fixed_message_count: 2, fixed_message_types: ['prefix', 'spec'],
+      }),
+    })
+    const sessionId = legacy.json.dsh_session.session_id
+    const upgraded = await postDsh(app.base, {
+      messages: [{ role: 'user', content: 'next' }],
+      dsh_session: dsh({
+        client_id: 'baibai-image', chat_id: 'legacy-alias', task_id: 'default',
+        request_id: 'r2', action: 'generate', session_id: sessionId,
+        fixed_message_count: 0, fixed_message_types: [],
+      }),
+    })
+    assert.equal(upgraded.response.status, 200, upgraded.text)
+    assert.equal(upgraded.json.dsh_session.session_id, sessionId)
+  } finally {
+    await app.close()
+  }
+})
+
+test('tool protocol and strict JSON schema are rejected explicitly', async () => {
+  const app = await start()
+  try {
+    const tools = await postDsh(app.base, {
+      tools: [{ type: 'function', function: { name: 'x' } }],
+      messages: fixedMessages(),
+      dsh_session: dsh({
+        chat_id: 'tool-chat', request_id: 'r1', action: 'generate',
+        fixed_message_count: 2, fixed_message_types: ['prefix', 'spec'],
+      }),
+    })
+    assert.equal(tools.response.status, 400, tools.text)
+    assert.equal(tools.json.error.code, 'unsupported_tool_mode')
+
+    const toolRole = await postDsh(app.base, {
+      messages: [{ role: 'tool', content: 'x' }],
+      dsh_session: dsh({
+        chat_id: 'tool-chat', request_id: 'r2', action: 'generate',
+        fixed_message_count: 0, fixed_message_types: [],
+      }),
+    })
+    assert.equal(toolRole.response.status, 400, toolRole.text)
+    assert.equal(toolRole.json.error.code, 'unsupported_tool_mode')
+
+    const schema = await postDsh(app.base, {
+      response_format: { type: 'json_schema', json_schema: { name: 'x', schema: {} } },
+      messages: fixedMessages(),
+      dsh_session: dsh({
+        chat_id: 'tool-chat', request_id: 'r3', action: 'generate',
+        fixed_message_count: 2, fixed_message_types: ['prefix', 'spec'],
+      }),
+    })
+    assert.equal(schema.response.status, 400, schema.text)
+    assert.equal(schema.json.error.code, 'unsupported_response_format')
+  } finally {
+    await app.close()
+  }
+})
+
+test('plain completions are rejected by default without creating a session', async () => {
+  const app = await start()
+  try {
+    const response = await postDsh(app.base, {
+      model: 'dsh-default',
+      messages: [{ role: 'user', content: 'health check' }],
+    })
+    assert.equal(response.response.status, 400, response.text)
+    assert.equal(response.json.error.code, 'persistent_protocol_required')
+    assert.equal(app.sessions.size, 0)
+  } finally {
+    await app.close()
+  }
+})
+
+test('capabilities endpoint describes the persistent protocol without creating a session', async () => {
+  const app = await start()
+  try {
+    const response = await fetch(`${app.base}/v1/bridge/capabilities`)
+    assert.equal(response.status, 200)
+    const body = await response.json()
+    assert.equal(body.object, 'bridge.capabilities')
+    assert.deepEqual(body.protocol_versions, [1])
+    assert.equal(body.tool_calls, false)
+    assert.equal(body.strict_json, false)
+    assert.deepEqual(body.scope_keys, ['client_id', 'chat_id', 'task_id'])
+    assert.ok(body.control_actions.includes('sync_rules'))
+    assert.equal(app.sessions.size, 0)
+  } finally {
+    await app.close()
+  }
+})
+
+test('invalid fixed types and non-empty reset are rejected', async () => {
+  const app = await start()
+  try {
+    const badTypes = await postDsh(app.base, {
+      messages: fixedMessages(),
+      dsh_session: dsh({
+        chat_id: 'chat-i', request_id: 'r1', action: 'generate',
+        fixed_message_count: 2, fixed_message_types: ['prefix', 'unknown'],
+      }),
+    })
+    assert.equal(badTypes.response.status, 400, badTypes.text)
+
+    const badReset = await postDsh(app.base, {
+      messages: [{ role: 'user', content: 'x' }],
+      dsh_session: dsh({ chat_id: 'chat-i', request_id: 'r2', action: 'reset' }),
+    })
+    assert.equal(badReset.response.status, 400, badReset.text)
+  } finally {
+    await app.close()
+  }
+})
+
+test('dsh_session mode ignores stream=true and returns JSON', async () => {
+  const app = await start()
+  try {
+    const result = await postDsh(app.base, {
+      stream: true,
+      messages: fixedMessages(),
+      dsh_session: dsh({
+        chat_id: 'chat-j', request_id: 'r1', action: 'generate',
+        fixed_message_count: 2, fixed_message_types: ['prefix', 'spec'],
+      }),
+    })
+    assert.equal(result.response.status, 200)
+    assert.match(result.response.headers.get('content-type') ?? '', /application\/json/)
+    assert.equal(typeof result.json.choices[0].message.content, 'string')
+    assert.ok(result.json.dsh_session.session_id)
+  } finally {
+    await app.close()
+  }
+})

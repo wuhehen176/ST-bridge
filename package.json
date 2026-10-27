@@ -1,0 +1,55 @@
+{
+  "name": "baobaohui-bridge",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "description": "DSH persistent Agent session bridge for Tavern plugins",
+  "license": "MIT",
+  "author": "baobaohui-bridge contributors",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "tavern",
+    "sillytavern",
+    "openai-compatible",
+    "agent-session"
+  ],
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "lib",
+    "assets",
+    "cordis.patch.yml",
+    "cordis.patch.snippet.yml",
+    "install.mjs",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
+    }
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "check": "node --check index.js && node --check client.js && node --check lib/engine.js && node --check lib/server.js && node --check lib/panel.js"
+  }
+}
