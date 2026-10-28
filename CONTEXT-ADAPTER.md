@@ -331,6 +331,26 @@ DSH 设置 → ST-bridge → 服务
 - 单条无 name 的 user 仍然原文发送，不加包装；
 - `appendNonce` 8–32 位十六进制，可在面板生成。
 
+### TauriTavern 兼容（0.9.2）
+
+TauriTavern 基于 SillyTavern 1.18.0 前端，并支持
+`data/default-user/extensions/<folder>` 的第三方前端扩展，因此扩展可以按
+SillyTavern 方式安装：
+
+```powershell
+node install-tavern.mjs --extensions-dir "<TauriTavern>/data/default-user/extensions" --apply
+```
+
+注意：
+
+- TauriTavern 由宿主拦截 `fetch` / `jQuery.ajax`；扩展在宿主拦截器之上再包一层，
+  仍能看到并改写 `custom_include_body`；
+- 聊天 ID 读取兼容 `getCurrentChatId()`、`context.chatId`、`chatMetadata.chat_id`；
+- 桥接接受 `tauri://localhost` 与 `http://tauri.localhost` 的 Origin；
+- 若宿主 Rust 网络层禁止访问本机 `127.0.0.1:43121`，扩展会拿不到回执，此时只能用
+  桥接 `plainCompat` 的共享会话兜底；
+- 安装后刷新 TauriTavern 页面，再查回执是否为 `adapter_state: traced`。
+
 ### 世界书与自定义清洗（扩展 0.3.0）
 
 在“世界书与清洗设置”选择当前客户端／聊天／任务的请求范围，勾选启用。

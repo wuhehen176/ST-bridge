@@ -22,7 +22,10 @@ let entries = [], entriesChat = '', token = '', profiles = [], lastScope = '', l
 let generationActive = false, activationKnown = false
 const previews = new Map()
 const copies = new PreviewCopies()
-const chatId = () => String(ctx().getCurrentChatId?.() || '')
+const chatId = () => {
+  const context = ctx()
+  return String(context.getCurrentChatId?.() || context.chatId || context.chatMetadata?.chat_id || '')
+}
 const save = () => ctx().saveSettingsDebounced()
 
 function reportWorldInfo(values, currentChat = chatId()) {
