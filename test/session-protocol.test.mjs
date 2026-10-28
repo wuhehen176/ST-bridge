@@ -1220,3 +1220,22 @@ test('provider session blocked is not treated as context overflow', async () => 
     assert.equal(app.sessions.size, 1)
   } finally { await app.close() }
 })
+
+test('archived session id falls back to the current valid binding', async () => {
+  const app = await start()
+  try {
+    app.engine.config.sessionOnStale = 'recreate'
+    app.engine.config.sessionOnArchived = 'recreate'
+    const first = await postDsh(app.base, { messages: fixedMessages(), dsh_session: dsh({ chat_id: 'arch-fallback', request_id: 'af-1', action: 'generate', fixed_message_count: 2, fixed_message_types: ['prefix', 'spec'] }) })
+    assert.equal(first.response.status, 200, first.text)
+    const oldId = first.json.dsh_session.session_id
+    app.host.services.workspaceRegistry.archivedSessionIds = [oldId]
+    const second = await postDsh(app.base, { messages: fixedMessages(), dsh_session: dsh({ chat_id: 'arch-fallback', request_id: 'af-2', action: 'generate', fixed_message_count: 2, fixed_message_types: ['prefix', 'spec'] }) })
+    assert.equal(second.response.status, 200, second.text)
+    const newId = second.json.dsh_session.session_id
+    assert.notEqual(newId, oldId)
+    const third = await postDsh(app.base, { messages: fixedMessages(), dsh_session: dsh({ chat_id: 'arch-fallback', request_id: 'af-3', action: 'generate', session_id: oldId, fixed_message_count: 2, fixed_message_types: ['prefix', 'spec'] }) })
+    assert.equal(third.response.status, 200, third.text)
+    assert.equal(third.json.dsh_session.session_id, newId)
+  } finally { await app.close() }
+})
