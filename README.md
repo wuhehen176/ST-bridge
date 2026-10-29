@@ -5,6 +5,15 @@ ST-bridge 是供柏宝绘、玉子手机、数据库等酒馆插件调用的本�
 
 仓库：<https://github.com/wuhehen176/ST-bridge>
 
+两个可安装部分分别发布：
+
+| 部分 | 安装源 |
+| --- | --- |
+| DSH Host 插件 | <https://github.com/wuhehen176/ST-bridge> |
+| 酒馆 / TauriTavern 扩展 | <https://github.com/wuhehen176/ST-bridge-tavern> |
+
+酒馆扩展使用独立仓库，因为酒馆要求仓库**根目录**直接包含 `manifest.json`。
+
 本机跨插件的来源预览与手动规则档位见 [上下文适配第一版](CONTEXT-ADAPTER.md)。
 默认所有材料保留，仅处理显式配置的本机桥接请求。
 
