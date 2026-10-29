@@ -285,7 +285,7 @@ export async function sourceParts(messages, entries) {
 }
 
 /** Returns null for any non-matching destination; the caller must forward the original unchanged. */
-export async function adaptBody({ url, pageOrigin, body, base, parseObject = JSON.parse, selections = {}, entries = [], materials, autoInject = {}, chatId = '' }) {
+export async function adaptBody({ url, pageOrigin, body, base, parseObject = JSON.parse, selections = {}, entries = [], materials, autoInject = {}, chatId = '', deviceToken = '' }) {
   const configured = localBase(base)
   const endpoint = new URL(url, pageOrigin)
   const proxy = endpoint.origin === pageOrigin && endpoint.pathname === '/api/backends/chat-completions/generate'
@@ -353,10 +353,18 @@ export async function adaptBody({ url, pageOrigin, body, base, parseObject = JSO
   const selection = selections[scope]
   const context = { version: 1, profile_id: typeof selection === 'string' ? selection : selection?.id || 'original', sources,
     ...(selection?.hash ? { profile_hash: selection.hash } : {}) }
-  context.transport = { version: 1, adapter_version: '0.3.3', trace_id: globalThis.crypto.randomUUID(), messages_digest: await messagesDigest(messages) }
+  context.transport = { version: 1, adapter_version: '0.3.4', trace_id: globalThis.crypto.randomUUID(), messages_digest: await messagesDigest(messages) }
   const next = proxy
     ? { ...body, messages, custom_include_body: JSON.stringify({ ...include, ...(Object.hasOwn(include, 'messages') ? { messages } : {}), dsh_context: context }) }
     : { ...body, messages, dsh_session: session, dsh_context: context }
+  if (deviceToken) {
+    if (proxy) {
+      const existing = typeof body.custom_include_headers === 'string' ? body.custom_include_headers : ''
+      const lines = existing.split(/\r?\n/).map(line => line.trim()).filter(line => line && !/^authorization\s*:/i.test(line))
+      lines.push(`Authorization: Bearer ${deviceToken}`)
+      next.custom_include_headers = lines.join('\n')
+    }
+  }
   const preview = {
     scope, client_id: session.client_id || 'baibai-image', chat_id: session.chat_id, task_id: session.task_id || 'default',
     profile_id: context.profile_id, materials_mode: filtered.audit.removed_chars || policy.tags.length ? 'client-filtered' : 'keep-all',
@@ -367,7 +375,7 @@ export async function adaptBody({ url, pageOrigin, body, base, parseObject = JSO
     messages: messages.map((message, index) => ({ index, role: message.role, chars: messageText(message).length, required: message.role === 'user' || index < fixedCount })),
     sources: sources.map(({ message_hash, ...part }) => ({ ...part, chars: part.end - part.start, action: 'keep', attribution: '客户端逐字匹配；不是酒馆激活原因证明' })),
   }
-  return { body: next, preview, beforeMessages: effective.messages }
+  return { body: next, preview, beforeMessages: effective.messages, deviceToken }
 }
 
 /** Chain existing interceptors; unmatched requests keep both input and init object identities. */
@@ -386,7 +394,7 @@ export function installAdapter(host, options) {
     if (!text) return forward()
     let body
     try { body = JSON.parse(text) } catch { return forward() }
-    const result = await adaptBody({ url: url.href, pageOrigin: host.location.origin, body, base, parseObject: options.parseObject, selections: options.selections(), entries: options.entries(), materials: options.materials, autoInject: options.autoInject?.() ?? {}, chatId: options.chatId?.() ?? '' })
+    const result = await adaptBody({ url: url.href, pageOrigin: host.location.origin, body, base, parseObject: options.parseObject, selections: options.selections(), entries: options.entries(), materials: options.materials, autoInject: options.autoInject?.() ?? {}, chatId: options.chatId?.() ?? '', deviceToken: options.deviceToken?.() ?? '' })
     if (!result) return forward()
     try {
       const headers = new Headers(init?.headers ?? request?.headers)
@@ -398,7 +406,13 @@ export function installAdapter(host, options) {
       options.onPreview(result.preview, body, sendingPreview(body, result.body, result.beforeMessages, result.body.messages, secrets))
     } catch { /* A display failure must not stop or reroute the real request. */ }
     try {
-      const response = await original.call(receiver, input, { ...init, method: 'POST', body: JSON.stringify(result.body) })
+      const outgoingInit = { ...init, method: 'POST', body: JSON.stringify(result.body) }
+      if (result.deviceToken && url.href === `${base}/chat/completions`) {
+        const headers = new Headers(init?.headers ?? request?.headers)
+        headers.set('authorization', `Bearer ${result.deviceToken}`)
+        outgoingInit.headers = headers
+      }
+      const response = await original.call(receiver, input, outgoingInit)
       void response.clone().json().then(data => options.onResult?.(result.preview.trace_id, data.bridge?.context, response.status, data.error?.message, data.bridge?.receipt, data.dsh_session?.request_id)).catch(() => {})
       return response
     } catch (error) {

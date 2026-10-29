@@ -208,3 +208,13 @@ test('localBase accepts private LAN and Tailscale addresses but rejects public h
     assert.throws(() => localBase(bad))
   }
 })
+
+test('device tokens are forwarded on proxy and direct requests', async () => {
+  const body = { chat_completion_source: 'custom', custom_url: base, custom_include_body: JSON.stringify({ dsh_session: session }), messages: [{ role: 'user', content: 'hi' }] }
+  const proxied = await adaptBody({ url: proxy, pageOrigin: 'http://localhost:8000', body, base, deviceToken: 'dev-token' })
+  assert.match(String(proxied.body.custom_include_headers), /Authorization: Bearer dev-token/)
+  assert.equal(proxied.deviceToken, 'dev-token')
+
+  const direct = await adaptBody({ url: `${base}/chat/completions`, pageOrigin: 'http://localhost:8000', body: { messages: [{ role: 'user', content: 'hi' }], dsh_session: session }, base, deviceToken: 'dev-token' })
+  assert.equal(direct.deviceToken, 'dev-token')
+})

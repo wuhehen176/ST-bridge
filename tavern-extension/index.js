@@ -1,5 +1,5 @@
 import { yaml } from '/lib.js'
-import { installAdapter, localBase, PreviewCopies, scopeKey, validateMaterialsPolicy } from './core.js?v=0.3.3'
+import { installAdapter, localBase, PreviewCopies, scopeKey, validateMaterialsPolicy } from './core.js?v=0.3.4'
 
 const KEY = 'st_bridge_context_v1'
 const ctx = () => window.SillyTavern.getContext()
@@ -17,8 +17,10 @@ settings.autoInject ||= {
   fixedMessageCount: 0,
   fixedMessageTypes: [],
 }
+settings.deviceToken ||= ''
+settings.pairDeviceName ||= 'TauriTavern'
 const parseObject = text => JSON.parse(JSON.stringify(yaml.parse(text) ?? {}))
-let entries = [], entriesChat = '', token = '', profiles = [], lastScope = '', lastTrace = '', bridgeReceipts = [], render = () => {}
+let entries = [], entriesChat = '', token = settings.deviceToken || '', profiles = [], lastScope = '', lastTrace = '', bridgeReceipts = [], render = () => {}
 let generationActive = false, activationKnown = false
 const previews = new Map()
 const copies = new PreviewCopies()
@@ -78,6 +80,7 @@ const dispose = installAdapter(window, {
   materials,
   autoInject: () => settings.autoInject,
   chatId: () => chatId(),
+  deviceToken: () => settings.deviceToken,
   parseObject,
   onPreview(preview, body, detail) {
     lastScope = preview.scope
@@ -158,6 +161,13 @@ function mount() {
     <label class="stbc-field">桥接地址<input class="text_pole" data-id="base" placeholder="http://127.0.0.1:43121/v1"></label>
     <button type="button" class="menu_button" data-id="selftest">连接自检（手机 / LAN）</button>
     <pre data-id="selftest-status" style="white-space:pre-wrap;max-height:200px;overflow:auto"></pre>
+    <details class="stbc-box"><summary>手机配对（输入配对码）</summary>
+    <label class="stbc-field">设备名<input class="text_pole" data-id="pair-device" placeholder="TauriTavern / iPhone"></label>
+    <label class="stbc-field">配对码<input class="text_pole" data-id="pair-code" placeholder="A7K9-2M4Q7X"></label>
+    <button type="button" class="menu_button" data-id="pair-submit">提交配对</button>
+    <button type="button" class="menu_button" data-id="pair-cancel">取消等待</button>
+    <pre data-id="pair-status" style="white-space:pre-wrap;max-height:160px;overflow:auto"></pre>
+    <small>先在电脑 ST-bridge 面板生成配对码；提交后在电脑点“允许”。设备 token 会保存在扩展设置中。</small></details>
     <details class="stbc-box"><summary>按酒馆聊天自动隔离 DSH 会话</summary>
     <label class="stbc-check"><input type="checkbox" data-id="auto-enabled"><span>自动注入 dsh_session / 改写 chat_id</span></label>
     <label class="stbc-field">默认 client_id（无 dsh_session 时）<input class="text_pole" data-id="auto-client" placeholder="yuzi-phone"></label>
@@ -219,7 +229,7 @@ function mount() {
   field('base').value = settings.base
   field('enabled').onchange = event => { settings.enabled = event.target.checked; save() }
   field('base').onchange = event => {
-    try { settings.base = localBase(event.target.value.trim()); profiles = []; previews.clear(); copies.clear(); bridgeReceipts = []; lastScope = ''; lastTrace = ''; token = ''; field('token').value = ''; save(); render() }
+    try { settings.base = localBase(event.target.value.trim()); settings.deviceToken = ''; token = ''; profiles = []; previews.clear(); copies.clear(); bridgeReceipts = []; lastScope = ''; lastTrace = ''; token = ''; field('token').value = ''; save(); render() }
     catch (error) { event.target.value = settings.base; status(error.message) }
   }
   field('token').oninput = event => { token = event.target.value }
@@ -270,6 +280,98 @@ function mount() {
       return `HTTP ${response.status} sse=${text.includes('data:')}`
     })
     write('完成')
+  }
+  {
+    field('pair-device').value = settings.pairDeviceName
+    field('pair-device').onchange = event => { settings.pairDeviceName = event.target.value.trim() || 'TauriTavern'; save() }
+    let pairTimer = null
+    let pairState = null
+    const pairStatus = text => { field('pair-status').textContent = text }
+    const stopPair = () => {
+      if (pairTimer) clearTimeout(pairTimer)
+      pairTimer = null
+      pairState = null
+    }
+    const ackHeaders = state => ({
+      'x-stb-pair-request': state.pairId,
+      'x-stb-poll-token': state.pollToken,
+    })
+    const pollPair = async () => {
+      pairTimer = null
+      if (!pairState) return
+      try {
+        const response = await fetch(`${pairState.base}/bridge/pair/status`, {
+          cache: 'no-store',
+          headers: ackHeaders(pairState),
+        })
+        const data = await response.json().catch(() => ({}))
+        if (!response.ok) {
+          pairStatus(`配对失败：${data.error?.message ?? response.status}`)
+          stopPair()
+          return
+        }
+        if (data.status === 'pending') {
+          pairStatus('等待电脑批准…')
+          pairTimer = setTimeout(pollPair, 1500)
+          return
+        }
+        if (data.status === 'approved_pending_delivery' && data.deviceToken) {
+          settings.deviceToken = data.deviceToken
+          token = data.deviceToken
+          save()
+          try {
+            await fetch(`${pairState.base}/bridge/pair/ack`, { method: 'POST', headers: ackHeaders(pairState) })
+            pairStatus('已配对：设备 token 已保存。')
+          } catch {
+            pairStatus('已配对：token 已保存，但 ACK 失败；可直接使用。')
+          }
+          stopPair()
+          return
+        }
+        pairStatus(`配对状态：${data.status}`)
+        stopPair()
+      } catch (error) {
+        pairStatus(`配对失败：${error instanceof Error ? error.message : String(error)}`)
+        stopPair()
+      }
+    }
+    field('pair-submit').onclick = async () => {
+      stopPair()
+      let base
+      try {
+        base = localBase(settings.base)
+      } catch (error) {
+        pairStatus(`桥接地址无效：${error.message}`)
+        return
+      }
+      const code = field('pair-code').value.trim()
+      if (!code) {
+        pairStatus('请先输入配对码。')
+        return
+      }
+      pairStatus('提交配对请求…')
+      try {
+        const response = await fetch(`${base}/bridge/pair/request`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ code, device_name: settings.pairDeviceName }),
+        })
+        const data = await response.json().catch(() => ({}))
+        if (!response.ok) {
+          pairStatus(`配对失败：${data.error?.message ?? response.status}`)
+          return
+        }
+        pairState = { base, pairId: data.pairId, pollToken: data.pollToken }
+        pairStatus('已提交，等待电脑批准…')
+        pairTimer = setTimeout(pollPair, 1000)
+      } catch (error) {
+        pairStatus(`提交失败：${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+    field('pair-cancel').onclick = () => {
+      stopPair()
+      pairStatus('已取消等待。')
+    }
   }
   {
     const auto = settings.autoInject
