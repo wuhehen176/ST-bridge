@@ -328,6 +328,26 @@ window.__ModuleLoader__.load({
         return `新令牌：${value.token}（只显示一次，请复制到手机扩展）`
       })
 
+      const startPairing = () => run('生成配对码', async () => {
+        const value = await rpc('action', { action: 'pair_start' })
+        return `配对码：${value.code}；${Math.max(1, Math.round((value.expiresAt - Date.now()) / 60000))} 分钟内有效。手机扩展输入该码后，在面板点“允许”。`
+      })
+
+      const approvePairing = pairId => run('批准设备', async () => {
+        await rpc('action', { action: 'pair_approve', pairId })
+        return '已批准。手机扩展会自动领取设备 token。'
+      })
+
+      const rejectPairing = pairId => run('拒绝设备', async () => {
+        await rpc('action', { action: 'pair_reject', pairId })
+        return '已拒绝该配对申请。'
+      })
+
+      const revokeDevice = deviceId => run('撤销设备', async () => {
+        await rpc('action', { action: 'device_revoke', deviceId })
+        return '设备已撤销，其 token 立即失效。'
+      })
+
       const showLogPath = async () => {
         try {
           const value = await rpc('action', { action: 'open_log' })
@@ -455,6 +475,29 @@ window.__ModuleLoader__.load({
                 onClick: () => void rotateAuthToken(),
               }, '生成'),
             ),
+          ),
+          h('div', { className: 'bbh-box' },
+            h('h4', null, '手机配对'),
+            h('p', { className: 'bbh-note' }, '生成一次性配对码；手机扩展提交后，在这里批准设备。设备 token 只保存哈希，撤销立即失效。'),
+            h('div', { className: 'bbh-actions' },
+              h('button', { type: 'button', className: 'bbh-btn', disabled: busy, onClick: () => void startPairing() }, '生成配对码'),
+            ),
+            status.pairing?.invite
+              ? h('p', { className: 'bbh-notice' }, `当前配对码：${status.pairing.invite.code}（${new Date(status.pairing.invite.expiresAt).toLocaleTimeString()} 过期）`)
+              : h('p', { className: 'bbh-note' }, '没有活动配对码。'),
+            status.pairing?.requests?.length
+              ? status.pairing.requests.map(request => h('div', { className: 'bbh-actions', key: request.pairId },
+                h('span', null, `${request.deviceName || '未命名设备'}  ${request.ip || ''}  ${new Date(request.createdAt).toLocaleTimeString()}`),
+                h('button', { type: 'button', className: 'bbh-btn', disabled: busy, onClick: () => void approvePairing(request.pairId) }, '允许'),
+                h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => void rejectPairing(request.pairId) }, '拒绝'),
+              ))
+              : h('p', { className: 'bbh-note' }, '没有待批准设备。'),
+            status.pairing?.devices?.length
+              ? status.pairing.devices.map(device => h('div', { className: 'bbh-actions', key: device.id },
+                h('span', null, `${device.name}  ${device.ip || ''}  最近 ${device.lastSeenAt ? new Date(device.lastSeenAt).toLocaleTimeString() : '未使用'}`),
+                h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => void revokeDevice(device.id) }, '撤销'),
+              ))
+              : h('p', { className: 'bbh-note' }, '还没有已授权设备。'),
           ),
           h('div', { className: 'bbh-grid2' },
             h(Field, { label: '请求超时（毫秒）' },
