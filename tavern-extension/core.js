@@ -353,16 +353,18 @@ export async function adaptBody({ url, pageOrigin, body, base, parseObject = JSO
   const selection = selections[scope]
   const context = { version: 1, profile_id: typeof selection === 'string' ? selection : selection?.id || 'original', sources,
     ...(selection?.hash ? { profile_hash: selection.hash } : {}) }
-  context.transport = { version: 1, adapter_version: '0.3.4', trace_id: globalThis.crypto.randomUUID(), messages_digest: await messagesDigest(messages) }
+  context.transport = { version: 1, adapter_version: '0.3.5', trace_id: globalThis.crypto.randomUUID(), messages_digest: await messagesDigest(messages) }
   const next = proxy
     ? { ...body, messages, custom_include_body: JSON.stringify({ ...include, ...(Object.hasOwn(include, 'messages') ? { messages } : {}), dsh_context: context }) }
     : { ...body, messages, dsh_session: session, dsh_context: context }
   if (deviceToken) {
     if (proxy) {
-      const existing = typeof body.custom_include_headers === 'string' ? body.custom_include_headers : ''
-      const lines = existing.split(/\r?\n/).map(line => line.trim()).filter(line => line && !/^authorization\s*:/i.test(line))
-      lines.push(`Authorization: Bearer ${deviceToken}`)
-      next.custom_include_headers = lines.join('\n')
+      const existing = body.custom_include_headers ? parseObject(body.custom_include_headers) : {}
+      if (!existing || typeof existing !== 'object' || Array.isArray(existing)) throw new Error('附加请求头必须为对象')
+      // Callers may supply JSON or YAML. Always emit one object, never append YAML to JSON.
+      const headers = Object.fromEntries(Object.entries(existing).filter(([key]) => key.toLowerCase() !== 'authorization'))
+      headers.Authorization = `Bearer ${deviceToken}`
+      next.custom_include_headers = JSON.stringify(headers)
     }
   }
   const preview = {

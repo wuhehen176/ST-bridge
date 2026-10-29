@@ -212,9 +212,38 @@ test('localBase accepts private LAN and Tailscale addresses but rejects public h
 test('device tokens are forwarded on proxy and direct requests', async () => {
   const body = { chat_completion_source: 'custom', custom_url: base, custom_include_body: JSON.stringify({ dsh_session: session }), messages: [{ role: 'user', content: 'hi' }] }
   const proxied = await adaptBody({ url: proxy, pageOrigin: 'http://localhost:8000', body, base, deviceToken: 'dev-token' })
-  assert.match(String(proxied.body.custom_include_headers), /Authorization: Bearer dev-token/)
+  assert.deepEqual(JSON.parse(proxied.body.custom_include_headers), { Authorization: 'Bearer dev-token' })
   assert.equal(proxied.deviceToken, 'dev-token')
 
   const direct = await adaptBody({ url: `${base}/chat/completions`, pageOrigin: 'http://localhost:8000', body: { messages: [{ role: 'user', content: 'hi' }], dsh_session: session }, base, deviceToken: 'dev-token' })
   assert.equal(direct.deviceToken, 'dev-token')
+})
+
+test('paired proxy headers remain one JSON object and replace Authorization case-insensitively', async () => {
+  const originalHeaders = { Authorization: 'Bearer old', authorization: 'Bearer stale', AUTHORIZATION: 'Bearer other', 'X-Client': 'baibai: # "test"' }
+  const body = { chat_completion_source: 'custom', custom_url: base, custom_include_body: JSON.stringify({ dsh_session: session }), custom_include_headers: JSON.stringify(originalHeaders), messages: [{ role: 'user', content: 'hi' }] }
+  const before = JSON.stringify(body)
+  const result = await adaptBody({ url: proxy, pageOrigin: 'http://localhost:8000', body, base, deviceToken: 'device-token' })
+  const headers = JSON.parse(result.body.custom_include_headers)
+  assert.deepEqual(headers, { 'X-Client': originalHeaders['X-Client'], Authorization: 'Bearer device-token' })
+  assert.equal(JSON.stringify(body), before)
+  assert.deepEqual(JSON.parse(result.body.custom_include_body).dsh_session, session)
+})
+
+test('paired proxy accepts caller-parsed YAML headers but serializes a single JSON map', async () => {
+  const yaml = 'authorization: Bearer old\nX-Client: mobile'
+  const parseObject = value => value === yaml ? { authorization: 'Bearer old', 'X-Client': 'mobile' } : JSON.parse(value)
+  const body = { chat_completion_source: 'custom', custom_url: base, custom_include_body: JSON.stringify({ dsh_session: session }), custom_include_headers: yaml, messages: [{ role: 'user', content: 'hi' }] }
+  const result = await adaptBody({ url: proxy, pageOrigin: 'http://localhost:8000', body, base, parseObject, deviceToken: 'device-token' })
+  assert.deepEqual(JSON.parse(result.body.custom_include_headers), { 'X-Client': 'mobile', Authorization: 'Bearer device-token' })
+  const unchanged = await adaptBody({ url: proxy, pageOrigin: 'http://localhost:8000', body, base, parseObject })
+  assert.equal(unchanged.body.custom_include_headers, yaml)
+})
+
+test('paired proxy rejects invalid header maps before forwarding instead of silently dropping them', async () => {
+  const body = { chat_completion_source: 'custom', custom_url: base, custom_include_body: JSON.stringify({ dsh_session: session }), messages: [{ role: 'user', content: 'hi' }] }
+  for (const value of ['[]', 'null', '"text"']) {
+    await assert.rejects(adaptBody({ url: proxy, pageOrigin: 'http://localhost:8000', body: { ...body, custom_include_headers: value }, base, deviceToken: 'device-token' }), /附加请求头必须为对象/)
+  }
+  await assert.rejects(adaptBody({ url: proxy, pageOrigin: 'http://localhost:8000', body: { ...body, custom_include_headers: '{broken' }, base, deviceToken: 'device-token' }), SyntaxError)
 })
