@@ -351,6 +351,28 @@ node install-tavern.mjs --extensions-dir "<TauriTavern>/data/default-user/extens
   桥接 `plainCompat` 的共享会话兜底；
 - 安装后刷新 TauriTavern 页面，再查回执是否为 `adapter_state: traced`。
 
+### 工作区 cwd 兜底（0.9.4）
+
+DSH Desktop 启动时的 `process.cwd()` 可能是 `...\dsh-desktop\launch-root`，
+不等于用户真实工作区路径，导致：
+
+```text
+cannot attach session ... to workspace ...:
+its cwd resolves to ...\launch-root
+```
+
+0.9.4 起：
+
+- 如果配置的 `cwd` 不在 DSH 工作区列表里，自动改用第一个工作区路径；
+- 会话创建和挂载都使用该路径；
+- 只记录一次：
+
+```text
+[bridge] cwd ... 不是 DSH 工作区，改用 ...
+```
+
+仍然建议在面板里把「工作区 cwd」设成真实工作区，避免依赖兜底。
+
 ### 世界书与自定义清洗（扩展 0.3.0）
 
 在“世界书与清洗设置”选择当前客户端／聊天／任务的请求范围，勾选启用。

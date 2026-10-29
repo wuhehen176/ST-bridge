@@ -1239,3 +1239,13 @@ test('archived session id falls back to the current valid binding', async () => 
     assert.equal(third.json.dsh_session.session_id, newId)
   } finally { await app.close() }
 })
+
+test('effective cwd falls back to the first DSH workspace', async () => {
+  const app = await start()
+  try {
+    app.engine.config.cwd = 'C:/definitely-not-a-dsh-workspace'
+    assert.equal(app.engine.effectiveCwd(), process.cwd())
+    app.engine.config.cwd = process.cwd()
+    assert.equal(app.engine.effectiveCwd(), process.cwd())
+  } finally { await app.close() }
+})
