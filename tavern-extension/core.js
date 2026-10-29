@@ -1,7 +1,26 @@
 // Browser/Node shared, dependency-free request adapter. Only image placeholders are removed.
+function privateHost(hostname) {
+  const host = hostname.replace(/^\[|\]$/g, '').toLowerCase()
+  if (host === 'localhost' || host === '::1' || host.startsWith('127.')) return true
+  const parts = host.split('.')
+  if (parts.length === 4 && parts.every(part => /^\d{1,3}$/.test(part) && Number(part) <= 255)) {
+    const [a, b] = parts.map(Number)
+    if (a === 10 || a === 127) return true
+    if (a === 192 && b === 168) return true
+    if (a === 172 && b >= 16 && b <= 31) return true
+    if (a === 169 && b === 254) return true
+    if (a === 100 && b >= 64 && b <= 127) return true
+    return false
+  }
+  // IPv6 ULA (fc00::/7) and link-local (fe80::/10).
+  return /^f[cd][0-9a-f]{0,2}:/.test(host) || /^fe[89ab][0-9a-f]?:/.test(host)
+}
+
 export function localBase(value) {
   const url = new URL(value)
-  if (url.protocol !== 'http:' || !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) || url.username || url.password || url.search || url.hash) throw new Error('只允许明确的本机 HTTP 桥接地址，例如 http://127.0.0.1:43121/v1')
+  if (url.protocol !== 'http:' || !privateHost(url.hostname) || url.username || url.password || url.search || url.hash) {
+    throw new Error('只允许本机或私有局域网 HTTP 桥接地址，例如 http://127.0.0.1:43121/v1 或 http://192.168.1.20:43121/v1')
+  }
   const path = url.pathname.replace(/\/+$/, '')
   if (path !== '/v1') throw new Error('桥接地址须以 /v1 结尾')
   return url.origin + path
@@ -334,7 +353,7 @@ export async function adaptBody({ url, pageOrigin, body, base, parseObject = JSO
   const selection = selections[scope]
   const context = { version: 1, profile_id: typeof selection === 'string' ? selection : selection?.id || 'original', sources,
     ...(selection?.hash ? { profile_hash: selection.hash } : {}) }
-  context.transport = { version: 1, adapter_version: '0.3.2', trace_id: globalThis.crypto.randomUUID(), messages_digest: await messagesDigest(messages) }
+  context.transport = { version: 1, adapter_version: '0.3.3', trace_id: globalThis.crypto.randomUUID(), messages_digest: await messagesDigest(messages) }
   const next = proxy
     ? { ...body, messages, custom_include_body: JSON.stringify({ ...include, ...(Object.hasOwn(include, 'messages') ? { messages } : {}), dsh_context: context }) }
     : { ...body, messages, dsh_session: session, dsh_context: context }

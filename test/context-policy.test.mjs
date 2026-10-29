@@ -196,3 +196,15 @@ test('auto injection creates a per-chat dsh_session and rewrites listed clients 
 
   assert.equal(await adaptBody({ url: base + '/chat/completions', pageOrigin: 'http://localhost:8000', body: plain, base, autoInject: auto, chatId: '' }), null)
 })
+
+test('localBase accepts private LAN and Tailscale addresses but rejects public hosts', () => {
+  assert.equal(localBase('http://127.0.0.1:43121/v1'), 'http://127.0.0.1:43121/v1')
+  assert.equal(localBase('http://192.168.1.20:43121/v1'), 'http://192.168.1.20:43121/v1')
+  assert.equal(localBase('http://10.0.0.5:43121/v1'), 'http://10.0.0.5:43121/v1')
+  assert.equal(localBase('http://172.20.1.2:43121/v1'), 'http://172.20.1.2:43121/v1')
+  assert.equal(localBase('http://100.64.0.1:43121/v1'), 'http://100.64.0.1:43121/v1')
+  assert.equal(localBase('http://[fe80::1]:43121/v1'), 'http://[fe80::1]:43121/v1')
+  for (const bad of ['http://8.8.8.8:43121/v1', 'http://0.0.0.0:43121/v1', 'https://192.168.1.20:43121/v1', 'http://192.168.1.20:43121/v2']) {
+    assert.throws(() => localBase(bad))
+  }
+})
