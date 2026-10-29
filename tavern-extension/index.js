@@ -1,5 +1,5 @@
 import { yaml } from '/lib.js'
-import { installAdapter, localBase, PreviewCopies, scopeKey, validateMaterialsPolicy } from './core.js?v=0.3.5'
+import { installAdapter, localBase, PreviewCopies, scopeKey, validateMaterialsPolicy } from './core.js?v=0.4.0'
 
 const KEY = 'st_bridge_context_v1'
 const ctx = () => window.SillyTavern.getContext()
@@ -29,6 +29,17 @@ const chatId = () => {
   return String(context.getCurrentChatId?.() || context.chatId || context.chatMetadata?.chat_id || '')
 }
 const save = () => ctx().saveSettingsDebounced()
+const serviceBase = () => `${new URL(localBase(settings.base)).origin}/v1`
+
+async function readEndpoints(base = serviceBase(), authorization = token ? `Bearer ${token}` : '') {
+  const response = await window.fetch(`${base}/bridge/capabilities`, {
+    headers: authorization ? { authorization } : {}, cache: 'no-store', signal: AbortSignal.timeout(8000),
+  })
+  const data = await response.json()
+  if (!response.ok) throw new Error(data.error?.message || `读取插件接入清单失败（HTTP ${response.status}）`)
+  if (!Array.isArray(data.client_endpoints)) throw new Error('桥接尚不支持插件专属地址，请先部署新版桥接')
+  return data.client_endpoints
+}
 
 function reportWorldInfo(values, currentChat = chatId()) {
   if (!Array.isArray(values) || currentChat !== chatId()) return
@@ -81,6 +92,7 @@ const dispose = installAdapter(window, {
   autoInject: () => settings.autoInject,
   chatId: () => chatId(),
   deviceToken: () => settings.deviceToken,
+  resolveEndpoint: async (id, { base, authorization }) => (await readEndpoints(base, authorization)).find(entry => entry.id === id),
   parseObject,
   onPreview(preview, body, detail) {
     lastScope = preview.scope
@@ -116,7 +128,7 @@ initial.eventSource.on(initial.eventTypes.CHAT_CHANGED, onChat)
 window.STBridgeContextAdapter = { reportWorldInfo, dispose, previews: () => structuredClone([...previews.values()]) }
 
 async function api(path, body) {
-  const response = await window.fetch(`${localBase(settings.base)}/bridge/context/${path}`, {
+  const response = await window.fetch(`${serviceBase()}/bridge/context/${path}`, {
     method: body ? 'POST' : 'GET', redirect: 'error', signal: AbortSignal.timeout(8000),
     headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
     ...(body ? { body: JSON.stringify(body) } : {}),
@@ -159,6 +171,8 @@ function mount() {
     <div class="inline-drawer-content"><div class="stbc-body">
     <label class="stbc-check"><input type="checkbox" data-id="enabled"><span>仅适配指定的本机桥接</span></label>
     <label class="stbc-field">桥接地址<input class="text_pole" data-id="base" placeholder="http://127.0.0.1:43121/v1"></label>
+    <button type="button" class="menu_button" data-id="load-endpoints">读取插件专属API地址</button>
+    <pre data-id="endpoint-list" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre>
     <button type="button" class="menu_button" data-id="selftest">连接自检（手机 / LAN）</button>
     <pre data-id="selftest-status" style="white-space:pre-wrap;max-height:200px;overflow:auto"></pre>
     <details class="stbc-box"><summary>手机配对（输入配对码）</summary>
@@ -170,7 +184,8 @@ function mount() {
     <small>先在电脑 ST-bridge 面板生成配对码；提交后在电脑点“允许”。设备 token 会保存在扩展设置中。</small></details>
     <details class="stbc-box"><summary>按酒馆聊天自动隔离 DSH 会话</summary>
     <label class="stbc-check"><input type="checkbox" data-id="auto-enabled"><span>自动注入 dsh_session / 改写 chat_id</span></label>
-    <label class="stbc-field">默认 client_id（无 dsh_session 时）<input class="text_pole" data-id="auto-client" placeholder="yuzi-phone"></label>
+    <small>专属地址按插件分配身份，下面的默认client_id仅供旧通用/v1兼容，不能自动识别插件。</small>
+    <label class="stbc-field">旧通用地址默认 client_id（无 dsh_session 时）<input class="text_pole" data-id="auto-client" placeholder="yuzi-phone"></label>
     <label class="stbc-field">默认 task_id<input class="text_pole" data-id="auto-task" placeholder="default"></label>
     <label class="stbc-field">chat_id 前缀<input class="text_pole" data-id="auto-prefix" placeholder="stb-"></label>
     <label class="stbc-check"><input type="checkbox" data-id="auto-override"><span>覆盖已有 chat_id（仅列出的 client）</span></label>
@@ -233,13 +248,20 @@ function mount() {
     catch (error) { event.target.value = settings.base; status(error.message) }
   }
   field('token').oninput = event => { token = event.target.value }
+  field('load-endpoints').onclick = async () => {
+    try {
+      const endpoints = await readEndpoints()
+      const origin = new URL(serviceBase()).origin
+      field('endpoint-list').textContent = endpoints.map(entry => `${entry.label}（${entry.enabled === false ? '已停用' : entry.taskId}）\n${origin}/clients/${entry.id}/v1`).join('\n\n') || '尚未登记插件，请在电脑ST-bridge面板“插件接入”中新增。'
+    } catch (error) { field('endpoint-list').textContent = error.message }
+  }
   field('selftest').onclick = async () => {
     const output = field('selftest-status')
     const lines = []
     const write = text => { output.textContent = [...lines, text].join('\n') }
     let base
     try {
-      base = localBase(settings.base)
+      base = serviceBase()
     } catch (error) {
       output.textContent = `桥接地址无效：${error.message}`
       return
@@ -339,7 +361,7 @@ function mount() {
       stopPair()
       let base
       try {
-        base = localBase(settings.base)
+        base = serviceBase()
       } catch (error) {
         pairStatus(`桥接地址无效：${error.message}`)
         return

@@ -73,6 +73,7 @@ test('PanelController saves, redacts token, and reloads persisted settings', () 
         model: 'deepseek-4.1-flash',
         authToken: 'secret-token',
         allowLegacyPlain: true,
+        clientEndpoints: [{ id: 'phone-test', label: '手机测试', taskId: 'phone', enabled: true }],
       },
     })
     assert.equal(saved.ok, true)
@@ -80,6 +81,7 @@ test('PanelController saves, redacts token, and reloads persisted settings', () 
     assert.equal(config.port, 43211)
     assert.equal(config.authToken, 'secret-token')
     assert.equal(panel.status().service.authTokenSet, true)
+    assert.equal(panel.status().service.clientEndpoints[0].id, 'phone-test')
 
     const file = join(dir, 'settings.json')
     assert.equal(existsSync(file), true)
@@ -101,6 +103,7 @@ test('PanelController saves, redacts token, and reloads persisted settings', () 
     assert.equal(applied.applied, true)
     assert.equal(reload.port, 43211)
     assert.equal(reload.authToken, '')
+    assert.deepEqual(reload.clientEndpoints, [{ id: 'phone-test', label: '手机测试', taskId: 'phone', enabled: true }])
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

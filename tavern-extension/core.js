@@ -22,8 +22,42 @@ export function localBase(value) {
     throw new Error('只允许本机或私有局域网 HTTP 桥接地址，例如 http://127.0.0.1:43121/v1 或 http://192.168.1.20:43121/v1')
   }
   const path = url.pathname.replace(/\/+$/, '')
-  if (path !== '/v1') throw new Error('桥接地址须以 /v1 结尾')
+  if (path !== '/v1' && !/^\/clients\/[a-z][a-z0-9_-]{0,63}\/v1$/.test(path)) throw new Error('桥接地址须为 /v1 或 /clients/插件ID/v1')
   return url.origin + path
+}
+
+function endpointId(base) {
+  return /^\/clients\/([^/]+)\/v1$/.exec(new URL(base).pathname)?.[1]
+}
+
+function destination(url, pageOrigin, body, configured) {
+  const endpoint = new URL(url, pageOrigin)
+  const proxy = endpoint.origin === pageOrigin && ['/api/backends/chat-completions/generate', '/api/backends/chat-completions/status'].includes(endpoint.pathname)
+  let actual
+  try {
+    if (proxy) {
+      if (!['custom', 'openai'].includes(body?.chat_completion_source)) return null
+      actual = localBase(body.chat_completion_source === 'custom' ? body.custom_url : body.reverse_proxy)
+    } else {
+      if (!/\/(chat\/completions|models)$/.test(endpoint.pathname)) return null
+      actual = localBase(endpoint.href.replace(/\/(chat\/completions|models)$/, ''))
+    }
+  } catch { return null }
+  if (new URL(actual).origin !== new URL(configured).origin || (endpointId(configured) && actual !== configured)) return null
+  return { proxy, actual, id: endpointId(actual), models: proxy ? endpoint.pathname.endsWith('/status') : endpoint.pathname.endsWith('/models') }
+}
+
+function proxyEnvelope(body, actual, deviceToken, parseObject) {
+  const next = { ...body, chat_completion_source: 'custom', custom_url: actual }
+  if (deviceToken || body.chat_completion_source === 'openai') {
+    const existing = body.custom_include_headers ? parseObject(body.custom_include_headers) : {}
+    if (!existing || typeof existing !== 'object' || Array.isArray(existing)) throw new Error('附加请求头必须为对象')
+    const previous = Object.entries(existing).find(([key]) => key.toLowerCase() === 'authorization')?.[1]
+    const headers = Object.fromEntries(Object.entries(existing).filter(([key]) => key.toLowerCase() !== 'authorization'))
+    headers.Authorization = deviceToken ? `Bearer ${deviceToken}` : previous || `Bearer ${body.proxy_password || ''}`
+    next.custom_include_headers = JSON.stringify(headers)
+  }
+  return next
 }
 
 export const scopeKey = session => JSON.stringify([session.client_id || 'baibai-image', session.chat_id, session.task_id || 'default'])
@@ -285,27 +319,44 @@ export async function sourceParts(messages, entries) {
 }
 
 /** Returns null for any non-matching destination; the caller must forward the original unchanged. */
-export async function adaptBody({ url, pageOrigin, body, base, parseObject = JSON.parse, selections = {}, entries = [], materials, autoInject = {}, chatId = '', deviceToken = '' }) {
+export async function adaptBody({ url, pageOrigin, body, base, parseObject = JSON.parse, selections = {}, entries = [], materials, autoInject = {}, chatId = '', deviceToken = '', resolveEndpoint, authorization = '' }) {
   const configured = localBase(base)
-  const endpoint = new URL(url, pageOrigin)
-  const proxy = endpoint.origin === pageOrigin && endpoint.pathname === '/api/backends/chat-completions/generate'
-  const direct = endpoint.href === `${configured}/chat/completions`
-  if (!proxy && !direct) return null
   if (!body || typeof body !== 'object' || Array.isArray(body)) return null
-  if (proxy && (body.chat_completion_source !== 'custom' || !body.custom_url)) return null
-  if (proxy) {
-    let actual
-    try { actual = localBase(body.custom_url) } catch { return null }
-    if (actual !== configured) return null
+  const target = destination(url, pageOrigin, body, configured)
+  if (!target) return null
+  const { proxy, actual } = target
+  const envelope = proxy ? proxyEnvelope(body, actual, deviceToken, parseObject) : body
+  let route
+  if (target.id) {
+    if (typeof resolveEndpoint !== 'function') throw new Error('插件专属地址需要新版手机扩展，请先连接桥接读取接入清单')
+    const headers = proxy && envelope.custom_include_headers ? parseObject(envelope.custom_include_headers) : {}
+    const auth = Object.entries(headers).find(([key]) => key.toLowerCase() === 'authorization')?.[1]
+    route = await resolveEndpoint(target.id, { base: `${new URL(actual).origin}/v1`, authorization: deviceToken ? `Bearer ${deviceToken}` : auth || authorization })
+    if (!route || route.id !== target.id) throw new Error(`未登记的插件接入：${target.id}`)
+    if (route.enabled === false) throw new Error(`插件接入已停用：${target.id}`)
   }
+  if (target.models) return proxy ? { body: envelope, preview: null, deviceToken } : null
   const include = proxy && body.custom_include_body ? parseObject(body.custom_include_body) : {}
   if (!include || typeof include !== 'object' || Array.isArray(include)) throw new Error('附加主体参数必须为对象')
   const effective = { ...body, ...include }
-  let session = effective.dsh_session
+  let session = effective.dsh_session ?? effective.dshSession ?? effective.metadata?.dsh_session ?? effective.metadata?.dshSession
   const auto = autoInject && typeof autoInject === 'object' ? autoInject : {}
   const safeChatId = String(chatId ?? '').trim().replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').slice(0, 200)
-  const injectedChatId = auto.enabled === true ? `${String(auto.prefix ?? '')}${safeChatId}` : ''
-  if (injectedChatId && safeChatId) {
+  const injectedChatId = auto.enabled === true && safeChatId ? `${String(auto.prefix ?? '')}${safeChatId}` : ''
+  if (route) {
+    const declared = [session?.client_id, session?.clientId, effective.client_id, effective.clientId].filter(value => value !== undefined && value !== null && value !== '')
+    if (declared.some(value => value !== route.id)) throw new Error('接入地址与请求client_id冲突，请为各插件使用独立预设')
+    const routedChat = injectedChatId || session?.chat_id || session?.chatId
+    if (!routedChat) throw new Error('插件专属地址需要当前酒馆聊天ID，请开启自动聊天隔离或由插件提供chat_id')
+    session = {
+      ...session, protocol_version: session?.protocol_version ?? 1, client_id: route.id, chat_id: routedChat,
+      task_id: session?.task_id ?? session?.taskId ?? effective.task_id ?? route.taskId ?? 'default',
+      action: session?.action ?? 'generate', fixed_message_count: session?.fixed_message_count ?? 0,
+      fixed_message_types: session?.fixed_message_types ?? [],
+    }
+    effective.dsh_session = session
+    include.dsh_session = session
+  } else if (injectedChatId && safeChatId) {
     if (session && auto.overrideChatId === true && Array.isArray(auto.clients) && auto.clients.includes(session.client_id)) {
       // Rewrite the constant chat_id sent by static presets into a per-chat scope.
       session = { ...session, chat_id: injectedChatId }
@@ -333,6 +384,11 @@ export async function adaptBody({ url, pageOrigin, body, base, parseObject = JSO
   }
   if (!session || session.protocol_version !== 1 || typeof session.chat_id !== 'string' || !session.chat_id) return null
   if ((session.action || 'generate') !== 'generate') return null // sync/reset keep their original contract
+  // A proxy request may carry dsh_session in the outer body while custom_include_body
+  // is what actually reaches the bridge. Always forward the resolved session,
+  // otherwise the bridge falls back to plainCompat and collapses separate plugins
+  // into one fixed scope.
+  if (proxy) include.dsh_session = session
   if (proxy && body.custom_exclude_body) {
     let excluded
     try { excluded = parseObject(body.custom_exclude_body) } catch { excluded = [] }
@@ -353,20 +409,10 @@ export async function adaptBody({ url, pageOrigin, body, base, parseObject = JSO
   const selection = selections[scope]
   const context = { version: 1, profile_id: typeof selection === 'string' ? selection : selection?.id || 'original', sources,
     ...(selection?.hash ? { profile_hash: selection.hash } : {}) }
-  context.transport = { version: 1, adapter_version: '0.3.5', trace_id: globalThis.crypto.randomUUID(), messages_digest: await messagesDigest(messages) }
+  context.transport = { version: 1, adapter_version: '0.4.0', trace_id: globalThis.crypto.randomUUID(), messages_digest: await messagesDigest(messages) }
   const next = proxy
-    ? { ...body, messages, custom_include_body: JSON.stringify({ ...include, ...(Object.hasOwn(include, 'messages') ? { messages } : {}), dsh_context: context }) }
+    ? { ...envelope, messages, custom_include_body: JSON.stringify({ ...include, ...(Object.hasOwn(include, 'messages') ? { messages } : {}), dsh_context: context }) }
     : { ...body, messages, dsh_session: session, dsh_context: context }
-  if (deviceToken) {
-    if (proxy) {
-      const existing = body.custom_include_headers ? parseObject(body.custom_include_headers) : {}
-      if (!existing || typeof existing !== 'object' || Array.isArray(existing)) throw new Error('附加请求头必须为对象')
-      // Callers may supply JSON or YAML. Always emit one object, never append YAML to JSON.
-      const headers = Object.fromEntries(Object.entries(existing).filter(([key]) => key.toLowerCase() !== 'authorization'))
-      headers.Authorization = `Bearer ${deviceToken}`
-      next.custom_include_headers = JSON.stringify(headers)
-    }
-  }
   const preview = {
     scope, client_id: session.client_id || 'baibai-image', chat_id: session.chat_id, task_id: session.task_id || 'default',
     profile_id: context.profile_id, materials_mode: filtered.audit.removed_chars || policy.tags.length ? 'client-filtered' : 'keep-all',
@@ -389,15 +435,25 @@ export function installAdapter(host, options) {
     if (!options.enabled()) return forward()
     const request = input && typeof input === 'object' && typeof input.clone === 'function' && typeof input.url === 'string' ? input : null
     const url = new URL(request?.url || String(input), host.location.href)
-    if (String(init?.method || request?.method || 'GET').toUpperCase() !== 'POST') return forward()
+    const method = String(init?.method || request?.method || 'GET').toUpperCase()
     const base = localBase(options.base())
-    if (!(url.origin === host.location.origin && url.pathname === '/api/backends/chat-completions/generate') && url.href !== `${base}/chat/completions`) return forward()
+    if (method === 'GET') {
+      const target = destination(url.href, host.location.origin, {}, base)
+      const deviceToken = options.deviceToken?.()
+      if (!target || target.proxy || !target.models || !deviceToken) return forward()
+      const headers = new Headers(init?.headers ?? request?.headers)
+      headers.set('authorization', `Bearer ${deviceToken}`)
+      return original.call(receiver, input, { ...init, headers })
+    }
+    if (method !== 'POST') return forward()
+    if (!(url.origin === host.location.origin && ['/api/backends/chat-completions/generate', '/api/backends/chat-completions/status'].includes(url.pathname)) && !destination(url.href, host.location.origin, {}, base)) return forward()
     const text = typeof init?.body === 'string' ? init.body : init?.body === undefined && request ? await request.clone().text() : null
     if (!text) return forward()
     let body
     try { body = JSON.parse(text) } catch { return forward() }
-    const result = await adaptBody({ url: url.href, pageOrigin: host.location.origin, body, base, parseObject: options.parseObject, selections: options.selections(), entries: options.entries(), materials: options.materials, autoInject: options.autoInject?.() ?? {}, chatId: options.chatId?.() ?? '', deviceToken: options.deviceToken?.() ?? '' })
+    const result = await adaptBody({ url: url.href, pageOrigin: host.location.origin, body, base, parseObject: options.parseObject, selections: options.selections(), entries: options.entries(), materials: options.materials, autoInject: options.autoInject?.() ?? {}, chatId: options.chatId?.() ?? '', deviceToken: options.deviceToken?.() ?? '', resolveEndpoint: options.resolveEndpoint, authorization: new Headers(init?.headers ?? request?.headers).get('authorization') || '' })
     if (!result) return forward()
+    if (!result.preview) return original.call(receiver, input, { ...init, method: 'POST', body: JSON.stringify(result.body) })
     try {
       const headers = new Headers(init?.headers ?? request?.headers)
       const secrets = ['authorization', 'x-api-key', 'cookie'].map(key => headers.get(key)).filter(Boolean)
@@ -409,7 +465,7 @@ export function installAdapter(host, options) {
     } catch { /* A display failure must not stop or reroute the real request. */ }
     try {
       const outgoingInit = { ...init, method: 'POST', body: JSON.stringify(result.body) }
-      if (result.deviceToken && url.href === `${base}/chat/completions`) {
+      if (result.deviceToken && url.origin !== host.location.origin) {
         const headers = new Headers(init?.headers ?? request?.headers)
         headers.set('authorization', `Bearer ${result.deviceToken}`)
         outgoingInit.headers = headers

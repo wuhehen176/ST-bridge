@@ -15,6 +15,7 @@ import { PairingService } from './lib/pairing.js'
 import { createBridgeServer, VERSION } from './lib/server.js'
 import { BridgeStore } from './lib/store.js'
 import { normalizeSnapshotMarker } from './lib/snapshot-diff.js'
+import { clientEndpoints } from './lib/client-endpoints.js'
 import { clampInteger, ensureDir } from './lib/util.js'
 
 export const name = 'ST-bridge'
@@ -68,6 +69,7 @@ function normalizeConfig(raw) {
     appendFormat: config.appendFormat === 'tagged' ? 'tagged' : 'nonce',
     appendNonce: /^[A-F0-9]{8,32}$/.test(appendNonce) ? appendNonce : '7F3A9C2E',
     allowedClientIds: Array.isArray(config.allowedClientIds) ? config.allowedClientIds.map(String) : [],
+    clientEndpoints: clientEndpoints(config.clientEndpoints),
     plainCompat: {
       enabled: config.plainCompat?.enabled === true,
       clientId: typeof config.plainCompat?.clientId === 'string' && config.plainCompat.clientId.trim() !== ''

@@ -119,6 +119,7 @@ window.__ModuleLoader__.load({
         allowNullOrigin: status?.service?.allowNullOrigin === true,
         corsText: (status?.service?.corsOrigins ?? []).join('\n'),
         allowedClientsText: (status?.service?.allowedClientIds ?? []).join('\n'),
+        clientEndpoints: (status?.service?.clientEndpoints ?? []).map(entry => ({ ...entry })),
         plainCompatEnabled: status?.service?.plainCompat?.enabled === true,
         plainCompatClientId: status?.service?.plainCompat?.clientId ?? 'yuzi-phone',
         plainCompatChatId: status?.service?.plainCompat?.chatId ?? 'yuzi-phone',
@@ -153,6 +154,7 @@ window.__ModuleLoader__.load({
       const [rawText, setRawText] = React.useState('')
       const [rawLoaded, setRawLoaded] = React.useState(false)
       const [presets, setPresets] = React.useState(null)
+      const [endpointBase, setEndpointBase] = React.useState('')
 
       const rpc = React.useCallback(async (endpoint, payload = {}) => {
         const result = await rpcRef.current(endpoint, payload)
@@ -230,6 +232,7 @@ window.__ModuleLoader__.load({
           allowNullOrigin: form.allowNullOrigin,
           corsOrigins: form.corsText.split(/[\n,]+/).map(item => item.trim()).filter(Boolean),
           allowedClientIds: form.allowedClientsText.split(/[\n,]+/).map(item => item.trim()).filter(Boolean),
+          clientEndpoints: form.clientEndpoints,
           plainCompat: {
             enabled: form.plainCompatEnabled,
             clientId: form.plainCompatClientId.trim() || 'yuzi-phone',
@@ -391,6 +394,7 @@ window.__ModuleLoader__.load({
       const tabs = [
         ['general', '服务'],
         ['model', '模型'],
+        ['endpoints', '插件接入'],
         ['clients', `客户端 (${chats.length})`],
         ['presets', '固定预设'],
         ['diagnostics', '诊断'],
@@ -601,6 +605,37 @@ window.__ModuleLoader__.load({
           h('div', { className: 'bbh-actions' },
             h('button', { type: 'button', className: 'bbh-btn', disabled: busy, onClick: () => void save() }, busy ? '保存中…' : '保存模型设置'),
           ),
+        ) : null,
+
+        status === null ? null : tab === 'endpoints' ? h('div', { className: 'bbh-card' },
+          h('h3', { className: 'bbh-card-title' }, '插件专属接入地址'),
+          h('p', { className: 'bbh-note' }, '不同插件使用不同地址；手机扩展继续补充当前酒馆聊天ID。地址只标识来源，认证仍使用原有设备令牌。保存后生效，无需重启服务。'),
+          h(Field, { label: '复制地址时使用的电脑地址', hint: '手机请选择能访问的局域网地址，127.0.0.1只用于电脑本机。' },
+            h('select', { className: 'bbh-select', value: endpointBase || status.network?.urls?.[0] || `http://127.0.0.1:${status.service.port}/v1`, onChange: e => setEndpointBase(e.target.value) },
+              [...new Set([...(status.network?.urls ?? []), `http://127.0.0.1:${status.service.port}/v1`])].map(value => h('option', { key: value, value }, value)))),
+          ...form.clientEndpoints.map((entry, index) => {
+            const update = patch => setField('clientEndpoints', form.clientEndpoints.map((item, i) => i === index ? { ...item, ...patch } : item))
+            const origin = (endpointBase || status.network?.urls?.[0] || `http://127.0.0.1:${status.service.port}/v1`).replace(/\/v1\/?$/, '')
+            const address = `${origin}/clients/${entry.id}/v1`
+            return h('div', { className: 'bbh-card', key: index },
+              h('div', { className: 'bbh-grid2' },
+                h(Field, { label: '显示名称' }, h('input', { className: 'bbh-input', value: entry.label, onChange: e => update({ label: e.target.value }) })),
+                h(Field, { label: '唯一插件ID', hint: '小写字母、数字、下划线或短横线；修改ID会使用新的会话范围，旧历史保留。' }, h('input', { className: 'bbh-input', value: entry.id, onChange: e => update({ id: e.target.value }) })),
+                h(Field, { label: '默认任务类型' }, h('input', { className: 'bbh-input', value: entry.taskId, onChange: e => update({ taskId: e.target.value }) }))),
+              h(Check, { label: '启用此接入', checked: entry.enabled, onChange: enabled => update({ enabled }) }),
+              h('input', { className: 'bbh-input', value: address, readOnly: true, 'aria-label': '插件API地址' }),
+              h('div', { className: 'bbh-actions' },
+                h('button', { type: 'button', className: 'bbh-btn secondary', onClick: async () => {
+                  try { await navigator.clipboard.writeText(address); setNotice('地址已复制；新增或修改接入后请先保存，再用于插件。') }
+                  catch { setError('剪贴板不可用，请手动复制上方地址。') }
+                } }, '复制API地址'),
+                h('button', { type: 'button', className: 'bbh-btn secondary', onClick: () => setField('clientEndpoints', form.clientEndpoints.filter((_, i) => i !== index)) }, '删除接入')),
+            )
+          }),
+          h('div', { className: 'bbh-actions' },
+            h('button', { type: 'button', className: 'bbh-btn secondary', onClick: () => setField('clientEndpoints', [...form.clientEndpoints, { id: '', label: '', taskId: 'default', enabled: true }]) }, '新增插件接入'),
+            h('button', { type: 'button', className: 'bbh-btn', disabled: busy, onClick: () => void save() }, busy ? '保存中…' : '保存插件接入')),
+          h('p', { className: 'bbh-note' }, '停用或删除只影响该地址的新请求，不删除Agent历史、不取消正在执行的任务。若设置了允许client_id列表，还需允许相应插件ID。'),
         ) : null,
 
         status === null ? null : tab === 'clients' ? h('div', { className: 'bbh-card' },

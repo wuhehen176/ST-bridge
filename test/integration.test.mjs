@@ -145,6 +145,26 @@ async function post(base, path, body) {
   return { response, json }
 }
 
+test('registered client addresses create separate real Agent bindings per plugin and Tavern chat', async t => {
+  const app = await start()
+  t.after(() => app.close())
+  const request = async (client, chat, requestId) => post(app.base, `/clients/${client}/v1/chat/completions`, {
+    model: 'dsh-default', messages: [{ role: 'user', content: 'endpoint isolation test' }],
+    dsh_session: { protocol_version: 1, client_id: client, chat_id: chat, request_id: requestId, fixed_message_count: 0, fixed_message_types: [] },
+  })
+  const phone = await request('yuzi-phone', 'same-chat', 'phone-1')
+  const database = await request('shujuku', 'same-chat', 'database-1')
+  const otherChat = await request('yuzi-phone', 'other-chat', 'phone-2')
+  assert.equal(phone.response.status, 200)
+  assert.equal(database.response.status, 200)
+  assert.equal(otherChat.response.status, 200)
+  const sessions = [phone, database, otherChat].map(item => item.json.dsh_session.session_id)
+  assert.equal(new Set(sessions).size, 3)
+  const samePhone = await request('yuzi-phone', 'same-chat', 'phone-3')
+  assert.equal(samePhone.json.dsh_session.session_id, sessions[0])
+  assert.equal(app.store.listChats().length, 3)
+})
+
 test('models endpoint exposes dsh-default', async () => {
   const app = await start()
   try {
