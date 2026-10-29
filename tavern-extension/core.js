@@ -163,17 +163,22 @@ export function validateMaterialsPolicy(value = {}) {
     if (!Array.isArray(items) || items.length > 128 || items.some(item => typeof item !== 'string' || !item.trim() || item.length > (key === 'patterns' ? 128 : 256))) throw new Error('材料名单无效（每类最多128项）')
     return [...new Set(items.map(item => item.trim()))]
   }
-  const policy = { excluded: list('excluded'), green: list('green'), patterns: list('patterns'), tags: list('tags') }
+  // Legacy green lists are ignored: activation belongs to Tavern, not this adapter.
+  const policy = { excluded: list('excluded'), patterns: list('patterns'), tags: list('tags') }
   policy.patterns.forEach(nameMatcher)
   if (policy.tags.length > 64 || policy.tags.some(tag => !/^[a-z][a-z0-9_:-]{0,63}$/i.test(tag))) throw new Error('清洗标签只填标签名，例如 snow（最多64个）')
   return policy
 }
 
+export function mergeMaterialsPolicies(globalPolicy = {}, scopePolicy = {}) {
+  const policies = [globalPolicy, scopePolicy].map(validateMaterialsPolicy)
+  return Object.fromEntries(['excluded', 'patterns', 'tags'].map(key => [key, [...new Set(policies.flatMap(policy => policy[key]))]]))
+}
+
 /** Exact full-entry, non-overlapping matches in dynamic system material only. Unknowns stay. */
-export function filterWorldMessages(messages, fixedCount, catalog, activated, activationKnown, policy) {
-  if (!policy.excluded.length && !policy.green.length && !policy.patterns.length) return { messages, audit: { removed_chars: 0, changes: [], protected_matches: [], warnings: [] } }
+export function filterWorldMessages(messages, fixedCount, catalog, activated, policy) {
+  if (!policy.excluded.length && !policy.patterns.length) return { messages, audit: { removed_chars: 0, changes: [], protected_matches: [], warnings: [] } }
   const patterns = policy.patterns.map(nameMatcher)
-  const active = new Set(activated.map(e => JSON.stringify([e.world, String(e.uid), e.content])))
   const candidates = new Map()
   for (const entry of [...catalog, ...activated]) {
     if (!entry.world || entry.uid === undefined || typeof entry.content !== 'string' || !entry.content.trim()) continue
@@ -185,8 +190,7 @@ export function filterWorldMessages(messages, fixedCount, catalog, activated, ac
     const text = messageText(message), matches = []
     for (const entry of entries) {
       const reason = policy.excluded.includes(entry.world) ? 'excluded-book'
-        : patterns.some(test => test(String(entry.comment || ''))) ? 'excluded-entry-name'
-        : policy.green.includes(entry.world) && entry.constant === false && entry.disable !== true && activationKnown && !active.has(JSON.stringify([entry.world, String(entry.uid), entry.content])) ? 'green-not-activated' : ''
+        : patterns.some(test => test(String(entry.comment || ''))) ? 'excluded-entry-name' : ''
       let start = 0
       while ((start = text.indexOf(entry.content, start)) >= 0) {
         matches.push({ start, end: start + entry.content.length, entry, reason }); start += entry.content.length
@@ -213,7 +217,7 @@ export function filterWorldMessages(messages, fixedCount, catalog, activated, ac
     }) }
   })
   return { messages: changes.length ? result : messages, audit: { removed_chars: changes.reduce((sum, c) => sum + c.chars, 0), changes, protected_matches: protectedMatches,
-    warnings: [...(policy.green.length && !activationKnown ? ['没有可关联的本轮激活结果，绿灯条目保留；未猜测关键词。'] : []), ...(ambiguous ? ['部分条目重复、重叠或匹配过多，无法唯一识别的内容已保留。'] : [])] } }
+    warnings: ambiguous ? ['部分条目重复、重叠或匹配过多，无法唯一识别的内容已保留。'] : [] } }
 }
 
 async function digest(text) {
@@ -399,9 +403,9 @@ export async function adaptBody({ url, pageOrigin, body, base, parseObject = JSO
   const fixedCount = Number.isInteger(session.fixed_message_count) ? session.fixed_message_count : 0
   if (fixedCount < 0 || fixedCount > effective.messages.length) throw new Error('固定规则数量无效，已停止清理请求')
   const material = materials ? await materials(session) : {}
-  const policy = validateMaterialsPolicy(material.policy)
+  const policy = mergeMaterialsPolicies(material.globalPolicy, material.policy)
   const knownEntries = material.entries || entries
-  const filtered = filterWorldMessages(effective.messages, fixedCount, material.catalog || [], knownEntries, material.activationKnown === true, policy)
+  const filtered = filterWorldMessages(effective.messages, fixedCount, material.catalog || [], knownEntries, policy)
   const cleaned = cleanImageMessages(filtered.messages, fixedCount, policy.tags)
   const messages = cleaned.messages
   const scope = scopeKey(session)
@@ -409,7 +413,7 @@ export async function adaptBody({ url, pageOrigin, body, base, parseObject = JSO
   const selection = selections[scope]
   const context = { version: 1, profile_id: typeof selection === 'string' ? selection : selection?.id || 'original', sources,
     ...(selection?.hash ? { profile_hash: selection.hash } : {}) }
-  context.transport = { version: 1, adapter_version: '0.4.0', trace_id: globalThis.crypto.randomUUID(), messages_digest: await messagesDigest(messages) }
+  context.transport = { version: 1, adapter_version: '0.4.1', trace_id: globalThis.crypto.randomUUID(), messages_digest: await messagesDigest(messages) }
   const next = proxy
     ? { ...envelope, messages, custom_include_body: JSON.stringify({ ...include, ...(Object.hasOwn(include, 'messages') ? { messages } : {}), dsh_context: context }) }
     : { ...body, messages, dsh_session: session, dsh_context: context }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { adaptBody, cleanImageMessages, filterWorldMessages, messageText, nameMatcher, validateMaterialsPolicy } from '../tavern-extension/core.js'
+import { adaptBody, cleanImageMessages, filterWorldMessages, messageText, nameMatcher, validateMaterialsPolicy, mergeMaterialsPolicies } from '../tavern-extension/core.js'
 import { normalizeMessages } from '../lib/context.js'
 import { parseContextRequest } from '../lib/context-policy.js'
 
@@ -11,7 +11,7 @@ test('worldbook filtering removes only full dynamic system matches, protects fix
   const catalog = [entry(1, 'PRIVATE_WORLDBOOK')]
   const raw = [{ role: 'system', content: '固定 PRIVATE_WORLDBOOK' }, { role: 'system', name: 'material', content: '前PRIVATE_WORLDBOOK后' }, { role: 'user', content: '正文引用PRIVATE_WORLDBOOK' }]
   const saved = structuredClone(raw)
-  const result = filterWorldMessages(raw, 1, catalog, [], false, policy({ excluded: ['设定'] }))
+  const result = filterWorldMessages(raw, 1, catalog, [], policy({ excluded: ['设定'] }))
   assert.deepEqual(raw, saved)
   assert.equal(result.messages[0], raw[0])
   assert.equal(result.messages[2], raw[2])
@@ -22,23 +22,22 @@ test('worldbook filtering removes only full dynamic system matches, protects fix
   assert.equal(result.audit.protected_matches.length, 2)
 })
 
-test('green books retain activated, blue-light and unknown entries; missing activation preserves content', () => {
+test('legacy green lists no longer re-filter Tavern activation, explicit exclusions still apply', () => {
   const catalog = [entry(1, 'ACTIVE_GREEN'), entry(2, 'IDLE_GREEN'), entry(3, 'BLUE_RULE', { constant: true }), entry(4, 'UNKNOWN_MODE', { constant: undefined })]
   const raw = [{ role: 'system', content: catalog.map(e => e.content).join('\n') }]
   const selected = policy({ green: ['设定'] })
-  const unknown = filterWorldMessages(raw, 0, catalog, [catalog[0]], false, selected)
-  assert.equal(unknown.messages, raw)
-  assert.match(unknown.audit.warnings.join(''), /没有可关联/)
-  const known = filterWorldMessages(raw, 0, catalog, [catalog[0]], true, selected)
-  assert.equal(known.messages[0].content, 'ACTIVE_GREEN\n\nBLUE_RULE\nUNKNOWN_MODE')
-  const excluded = filterWorldMessages(raw, 0, catalog, [catalog[0]], true, policy({ ...selected, excluded: ['设定'] }))
+  const unchanged = filterWorldMessages(raw, 0, catalog, [catalog[0]], selected)
+  assert.equal(unchanged.messages, raw)
+  assert.deepEqual(unchanged.audit.warnings, [])
+  assert.equal(Object.hasOwn(selected, 'green'), false)
+  const excluded = filterWorldMessages(raw, 0, catalog, [catalog[0]], policy({ ...selected, excluded: ['设定'] }))
   assert.equal(excluded.messages[0].content.trim(), '')
 })
 
 test('ambiguous identical or overlapping worldbook texts stay; partial/rendered text does not get guessed', () => {
   const catalog = [entry(1, 'SHARED_TEXT'), entry(2, 'SHARED_TEXT', { world: '另一书' }), entry(3, 'part'), entry(4, 'long part')]
   const raw = [{ role: 'system', content: 'SHARED_TEXT long part rendered-macro' }]
-  const result = filterWorldMessages(raw, 0, catalog, [], false, policy({ excluded: ['设定'] }))
+  const result = filterWorldMessages(raw, 0, catalog, [], policy({ excluded: ['设定'] }))
   assert.equal(result.messages, raw)
   assert.match(result.audit.warnings.join(''), /重复/)
 })
@@ -62,6 +61,38 @@ test('entry-name filters are explicit plain text or bounded simple regex, unsafe
   assert.equal(nameMatcher('/\\[mvu[\\s\\S]*?\\]/i')('[MVU 框架]'), true)
   for (const invalid of ['/(a+)+$/', '/(a|aa)+$/', '/a*a*a*/', '/[bad/']) assert.throws(() => nameMatcher(invalid))
   assert.throws(() => validateMaterialsPolicy({ tags: ['<snow>'] }), /标签/)
+})
+
+test('global and scope exclusions combine without duplicates or reducing either list capacity', () => {
+  const global = { excluded: ['所有插件排除', '重复'], patterns: ['全局规则'] }
+  const scoped = { excluded: ['本范围排除', '重复'], patterns: ['范围规则'], tags: ['snow'] }
+  const before = JSON.stringify([global, scoped])
+  assert.deepEqual(mergeMaterialsPolicies(global, scoped), {
+    excluded: ['所有插件排除', '重复', '本范围排除'], patterns: ['全局规则', '范围规则'], tags: ['snow'],
+  })
+  assert.equal(JSON.stringify([global, scoped]), before)
+  const full = prefix => ({ excluded: Array.from({ length: 128 }, (_, i) => `${prefix}${i}`) })
+  assert.equal(mergeMaterialsPolicies(full('全局'), full('范围')).excluded.length, 256)
+  assert.throws(() => mergeMaterialsPolicies({ patterns: ['/(a+)+$/'] }), /正则/)
+})
+
+test('global exclusions apply across plugins and chats while scope rules and conversation protection remain independent', async () => {
+  const base = 'http://127.0.0.1:43121/v1'
+  const catalog = [entry(1, 'GLOBAL_CONTENT', { world: '全局排除书' }), entry(2, 'GLOBAL_PATTERN', { world: '其它书', comment: '全局规则条目' }), entry(3, 'SCOPED_CONTENT', { world: '范围排除书' }), entry(4, 'KEEP_CONTENT', { world: '保留书' })]
+  const messages = [{ role: 'system', content: '固定GLOBAL_CONTENT' }, { role: 'system', content: catalog.map(item => item.content).join('|') }, { role: 'user', content: '本轮GLOBAL_CONTENT<snow>私密注记</snow>' }]
+  const globalPolicy = { excluded: ['全局排除书'], patterns: ['全局规则'] }
+  for (const [client, chat] of [['shujuku', 'chat-a'], ['yuzi-phone', 'chat-a'], ['shujuku', 'chat-b']]) {
+    const scoped = client === 'shujuku' && chat === 'chat-a'
+    const body = { messages, dsh_session: { protocol_version: 1, client_id: client, chat_id: chat, fixed_message_count: 1, fixed_message_types: ['contract'] } }
+    const result = await adaptBody({ url: `${base}/chat/completions`, pageOrigin: 'http://localhost:8000', base, body,
+      materials: async () => ({ globalPolicy, policy: scoped ? { excluded: ['范围排除书'], tags: ['snow'] } : {}, catalog, entries: catalog }),
+    })
+    assert.equal(result.body.messages[0], messages[0])
+    assert.equal(result.body.messages[1].content, scoped ? '|||KEEP_CONTENT' : '||SCOPED_CONTENT|KEEP_CONTENT')
+    assert.equal(result.body.messages[2].content, scoped ? '本轮GLOBAL_CONTENT' : messages[2].content)
+    assert.equal(result.preview.worldbook_filter.changes.length, scoped ? 3 : 2)
+    assert.equal(messages[1].content, 'GLOBAL_CONTENT|GLOBAL_PATTERN|SCOPED_CONTENT|KEEP_CONTENT')
+  }
 })
 
 test('local adapter applies selected scope, rebuilds source hashes after filtering, and never reads books for unrelated requests', async () => {

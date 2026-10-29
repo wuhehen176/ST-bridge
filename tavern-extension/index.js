@@ -1,5 +1,5 @@
 import { yaml } from '/lib.js'
-import { installAdapter, localBase, PreviewCopies, scopeKey, validateMaterialsPolicy } from './core.js?v=0.4.0'
+import { installAdapter, localBase, PreviewCopies, scopeKey, validateMaterialsPolicy, mergeMaterialsPolicies } from './core.js?v=0.4.1'
 
 const KEY = 'st_bridge_context_v1'
 const ctx = () => window.SillyTavern.getContext()
@@ -7,6 +7,7 @@ const initial = ctx()
 const settings = initial.extensionSettings[KEY] ||= { enabled: true, base: 'http://127.0.0.1:43121/v1', selections: {} }
 settings.selections ||= {}
 settings.materials ||= {}
+settings.globalMaterials ||= {}
 settings.autoInject ||= {
   enabled: true,
   clientId: 'yuzi-phone',
@@ -21,7 +22,6 @@ settings.deviceToken ||= ''
 settings.pairDeviceName ||= 'TauriTavern'
 const parseObject = text => JSON.parse(JSON.stringify(yaml.parse(text) ?? {}))
 let entries = [], entriesChat = '', token = settings.deviceToken || '', profiles = [], lastScope = '', lastTrace = '', bridgeReceipts = [], render = () => {}
-let generationActive = false, activationKnown = false
 const previews = new Map()
 const copies = new PreviewCopies()
 const chatId = () => {
@@ -50,7 +50,6 @@ function reportWorldInfo(values, currentChat = chatId()) {
     return { content, uid: e.uid, world: e.world, comment: e.comment, constant: e.constant, disable: e.disable }
   }).slice(0, 4096)
   entriesChat = currentChat
-  activationKnown = true
 }
 
 const worldNames = () => [...new Set(ctx().getWorldInfoNames?.() || [...document.querySelectorAll('#world_editor_select option')].filter(o => o.value).map(o => o.textContent))].filter(Boolean).sort((a, b) => a.localeCompare(b, 'zh'))
@@ -61,11 +60,11 @@ const expandEntry = (e, world, uid) => {
 }
 async function materials(session) {
   const selected = settings.materials[scopeKey(session)]
-  if (!selected?.enabled) return { entries: entriesChat === chatId() ? entries : [] }
-  const policy = validateMaterialsPolicy(selected), currentChat = chatId()
+  const scopePolicy = selected?.enabled === true ? selected : {}
+  const globalPolicy = settings.globalMaterials.enabled === true ? settings.globalMaterials : {}
+  const policy = mergeMaterialsPolicies(globalPolicy, scopePolicy), currentChat = chatId()
   const activeEntries = entriesChat === currentChat ? entries : []
-  const known = generationActive && activationKnown && entriesChat === currentChat
-  const names = [...new Set([...policy.excluded, ...policy.green, ...(policy.patterns.length ? worldNames() : [])])]
+  const names = [...new Set([...policy.excluded, ...(policy.patterns.length ? worldNames() : [])])]
   const catalog = [], warnings = []
   if (names.length > 64) warnings.push('本次只读取前64本世界书，未读取内容保留；请缩小名单。')
   for (const name of names.slice(0, 64)) {
@@ -80,7 +79,7 @@ async function materials(session) {
   }
   if (catalog.length >= 4096) warnings.push('条目读取达到4096条上限；未识别内容保留。')
   if (chatId() !== currentChat) throw new Error('读取材料期间聊天发生切换，已停止该请求，请在目标聊天重新发送')
-  return { policy, catalog, entries: activeEntries, activationKnown: known, warnings }
+  return { policy: scopePolicy, globalPolicy, catalog, entries: activeEntries, warnings }
 }
 
 const dispose = installAdapter(window, {
@@ -120,9 +119,8 @@ const dispose = installAdapter(window, {
 })
 
 const onActivated = values => reportWorldInfo(values)
-const onChat = () => { entries = []; entriesChat = ''; activationKnown = false; generationActive = false; lastScope = ''; lastTrace = ''; copies.clear(); render() }
-initial.eventSource.on(initial.eventTypes.GENERATION_STARTED, () => { generationActive = true; activationKnown = false; entries = []; entriesChat = '' })
-initial.eventSource.on(initial.eventTypes.GENERATION_ENDED, () => { generationActive = false; activationKnown = false })
+const onChat = () => { entries = []; entriesChat = ''; lastScope = ''; lastTrace = ''; copies.clear(); render() }
+initial.eventSource.on(initial.eventTypes.GENERATION_STARTED, () => { entries = []; entriesChat = '' })
 initial.eventSource.on(initial.eventTypes.WORLD_INFO_ACTIVATED, onActivated)
 initial.eventSource.on(initial.eventTypes.CHAT_CHANGED, onChat)
 window.STBridgeContextAdapter = { reportWorldInfo, dispose, previews: () => structuredClone([...previews.values()]) }
@@ -201,17 +199,22 @@ function mount() {
     <label class="stbc-field">本范围的发送记录<select class="text_pole" data-id="attempt"></select></label>
     <label class="stbc-field">手动规则档位<select class="text_pole" data-id="profile"></select></label>
     <button type="button" class="menu_button" data-id="confirm-profile">确认当前档位用于下一次请求</button>
-    <small>发送副本剔除生图占位块；材料筛选另行启用，固定规则和未确认来源的正文保留。字符数不等于 token。</small>
+    <small>发送副本剔除生图占位块；排除名单另行启用，固定规则和未确认来源的正文保留。字符数不等于 token。</small>
+    <details class="stbc-box"><summary>全局世界书排除（所有请求范围）</summary>
+    <label class="stbc-check"><input type="checkbox" data-id="global-material-enabled"><span>启用全局排除</span></label>
+    <small>对本扩展适配到指定桥接的各插件、各聊天生效，与本范围名单叠加。绿灯触发跟随酒馆，不另行筛选。设置保存在当前酒馆／TauriTavern，不自动同步其它设备。</small>
+    <button type="button" class="menu_button" data-id="global-edit-excluded">编辑全局整本排除名单</button><div data-id="global-excluded-chips"></div>
+    <label class="stbc-field">全局按条目备注名过滤<input class="text_pole" data-id="global-pattern-draft" placeholder="普通文字包含匹配，简单正则如 /^规则/"></label>
+    <button type="button" class="menu_button" data-id="global-add-pattern">添加全局条目名规则</button><div data-id="global-pattern-chips"></div>
+    <small>只清理发送副本中可准确识别的动态 system 世界书条目；不拦截其它 API 地址，不修改原书。</small>
+    <pre data-id="global-material-status" style="white-space:pre-wrap"></pre></details>
     <details class="stbc-box"><summary>世界书与清洗设置（当前请求范围）</summary>
     <small data-id="material-scope"></small>
     <label class="stbc-check"><input type="checkbox" data-id="material-enabled"><span>启用本范围的材料筛选与自定义标签清洗</span></label>
-    <div class="stbc-box"><b>排除世界书内容</b>
+    <div class="stbc-box"><b>本范围排除世界书内容（叠加全局名单）</b>
     <button type="button" class="menu_button" data-id="edit-excluded">编辑整本排除名单</button><div data-id="excluded-chips"></div>
     <label class="stbc-field">按条目备注名过滤<input class="text_pole" data-id="pattern-draft" placeholder="普通文字包含匹配，简单正则如 /^规则/"></label>
     <button type="button" class="menu_button" data-id="add-pattern">添加条目名规则</button><div data-id="pattern-chips"></div></div>
-    <div class="stbc-box"><b>绿灯世界书：按本轮触发结果筛选</b>
-    <button type="button" class="menu_button" data-id="edit-green">编辑绿灯筛选名单</button><div data-id="green-chips"></div>
-    <small>仅筛选所选书的绿灯条目；蓝灯条目保留。没有可关联的酒馆本轮激活结果时保留并提示。排除名单优先；不补入新内容。</small></div>
     <div class="stbc-box"><b>自定义清洗标签</b>
     <label class="stbc-field">标签名<input class="text_pole" data-id="tag-draft" placeholder="例如 snow，不填尖括号"></label>
     <button type="button" class="menu_button" data-id="add-tag">添加清洗标签</button><div data-id="tag-chips"></div>
@@ -419,25 +422,28 @@ function mount() {
     select.replaceChildren(...values.map(([id, label]) => { const option = document.createElement('option'); option.value = id; option.textContent = label; return option }))
     select.value = selected
   }
-  const materialStatus = text => { field('material-status').textContent = text }
-  const policyNow = () => validateMaterialsPolicy(settings.materials[lastScope])
-  const saveMaterials = (key, values) => {
-    if (!lastScope) return
+  const materialStatus = (text, area = 'scope') => { field(area === 'global' ? 'global-material-status' : 'material-status').textContent = text }
+  const policyNow = (area = 'scope') => validateMaterialsPolicy(area === 'global' ? settings.globalMaterials : settings.materials[lastScope])
+  const saveMaterials = (key, values, area = 'scope') => {
+    if (area !== 'global' && !lastScope) return
     try {
-      const previous = settings.materials[lastScope] || {}
+      const previous = (area === 'global' ? settings.globalMaterials : settings.materials[lastScope]) || {}
       const next = validateMaterialsPolicy({ ...previous, [key]: values })
-      settings.materials[lastScope] = { ...next, enabled: previous.enabled === true }
-      save(); render(); materialStatus('已保存到此请求范围；下一次请求生效。可在发送预览里核对处理结果。')
-    } catch (error) { materialStatus(error.message) }
+      const updated = { ...next, enabled: previous.enabled === true }
+      if (area === 'global') settings.globalMaterials = updated
+      else settings.materials[lastScope] = updated
+      save(); render(); materialStatus(`已保存${area === 'global' ? '全局' : '本范围'}名单；${updated.enabled ? '下一次请求生效' : '勾选启用后生效'}。可在发送预览里核对处理结果。`, area)
+    } catch (error) { materialStatus(error.message, area) }
   }
-  const chips = (id, key, items) => {
+  const chips = (id, key, items, area = 'scope') => {
     field(id).replaceChildren(...items.map(item => {
       const button = document.createElement('button'); button.type = 'button'; button.className = 'stbc-chip'
-      button.textContent = item + ' ×'; button.title = '移除此项'; button.onclick = () => saveMaterials(key, policyNow()[key].filter(value => value !== item))
+      button.textContent = item + ' ×'; button.title = '移除此项'; button.disabled = area !== 'global' && !lastScope
+      button.onclick = () => saveMaterials(key, policyNow(area)[key].filter(value => value !== item), area)
       return button
     }))
   }
-  let pickerKey = '', pickerScope = '', pickerDraft = new Set(), pickerNames = []
+  let pickerArea = 'scope', pickerScope = '', pickerDraft = new Set(), pickerNames = []
   const renderBooks = () => {
     const query = field('book-search').value.trim().toLowerCase()
     const visible = pickerNames.filter(name => name.toLowerCase().includes(query))
@@ -449,31 +455,34 @@ function mount() {
     }))
     if (!visible.length) field('book-list').textContent = '没有匹配的世界书。'
   }
-  const openPicker = key => {
-    if (!lastScope) return
-    pickerKey = key; pickerScope = lastScope; pickerDraft = new Set(policyNow()[key]); pickerNames = [...new Set([...worldNames(), ...pickerDraft])]
-    field('picker-title').textContent = key === 'excluded' ? '编辑整本排除名单' : '编辑绿灯筛选名单'
+  const openPicker = (area = 'scope') => {
+    if (area !== 'global' && !lastScope) return
+    pickerArea = area; pickerScope = lastScope; pickerDraft = new Set(policyNow(area).excluded); pickerNames = [...new Set([...worldNames(), ...pickerDraft])]
+    field('picker-title').textContent = area === 'global' ? '编辑全局整本排除名单' : '编辑本范围整本排除名单'
     field('book-search').value = ''; renderBooks(); field('book-picker').showModal()
   }
-  field('edit-excluded').onclick = () => openPicker('excluded')
-  field('edit-green').onclick = () => openPicker('green')
+  field('edit-excluded').onclick = () => openPicker()
+  field('global-edit-excluded').onclick = () => openPicker('global')
   field('book-search').oninput = renderBooks
   field('picker-cancel').onclick = () => field('book-picker').close()
   field('picker-save').onclick = () => {
-    if (lastScope !== pickerScope) { materialStatus('请求范围已切换，请重新打开名单编辑。'); field('book-picker').close(); return }
-    saveMaterials(pickerKey, [...pickerDraft]); field('book-picker').close()
+    if (pickerArea !== 'global' && lastScope !== pickerScope) { materialStatus('请求范围已切换，请重新打开名单编辑。'); field('book-picker').close(); return }
+    saveMaterials('excluded', [...pickerDraft], pickerArea); field('book-picker').close()
+  }
+  field('global-material-enabled').onchange = event => {
+    settings.globalMaterials = { ...policyNow('global'), enabled: event.target.checked }; save(); render()
   }
   field('material-enabled').onchange = event => {
     if (!lastScope) return
     settings.materials[lastScope] = { ...policyNow(), enabled: event.target.checked }; save(); render()
   }
-  for (const [button, draft, key] of [['add-pattern', 'pattern-draft', 'patterns'], ['add-tag', 'tag-draft', 'tags']]) {
+  for (const [button, draft, key, area] of [['add-pattern', 'pattern-draft', 'patterns', 'scope'], ['add-tag', 'tag-draft', 'tags', 'scope'], ['global-add-pattern', 'global-pattern-draft', 'patterns', 'global']]) {
     field(button).onclick = () => {
       const value = field(draft).value.trim()
-      if (!lastScope || !value) return
-      try { validateMaterialsPolicy({ ...policyNow(), [key]: [...policyNow()[key], value] }) }
-      catch (error) { materialStatus(error.message); return }
-      saveMaterials(key, [...policyNow()[key], value]); field(draft).value = ''
+      if ((area !== 'global' && !lastScope) || !value) return
+      try { validateMaterialsPolicy({ ...policyNow(area), [key]: [...policyNow(area)[key], value] }) }
+      catch (error) { materialStatus(error.message, area); return }
+      saveMaterials(key, [...policyNow(area)[key], value], area); field(draft).value = ''
     }
   }
   render = () => {
@@ -483,11 +492,13 @@ function mount() {
     }
     if (!lastScope && scopes.size) lastScope = scopes.keys().next().value
     choices(field('scope'), [...scopes], lastScope)
-    const policy = policyNow()
+    const policy = policyNow(), globalPolicy = policyNow('global')
+    field('global-material-enabled').checked = settings.globalMaterials.enabled === true
+    chips('global-excluded-chips', 'excluded', globalPolicy.excluded, 'global'); chips('global-pattern-chips', 'patterns', globalPolicy.patterns, 'global')
     field('material-scope').textContent = lastScope ? `当前范围：${scopes.get(lastScope)}` : '先通过此桥接发送一次请求，即可选择范围并设置。'
     field('material-enabled').checked = settings.materials[lastScope]?.enabled === true
-    for (const id of ['material-enabled', 'edit-excluded', 'edit-green', 'add-pattern', 'add-tag', 'pattern-draft', 'tag-draft']) field(id).disabled = !lastScope
-    chips('excluded-chips', 'excluded', policy.excluded); chips('green-chips', 'green', policy.green); chips('pattern-chips', 'patterns', policy.patterns); chips('tag-chips', 'tags', policy.tags)
+    for (const id of ['material-enabled', 'edit-excluded', 'add-pattern', 'add-tag', 'pattern-draft', 'tag-draft']) field(id).disabled = !lastScope
+    chips('excluded-chips', 'excluded', policy.excluded); chips('pattern-chips', 'patterns', policy.patterns); chips('tag-chips', 'tags', policy.tags)
     const attempts = [...previews.values()].filter(p => p.scope === lastScope).reverse()
     if (!attempts.some(p => p.trace_id === lastTrace)) lastTrace = attempts[0]?.trace_id || ''
     const current = previews.get(lastTrace)
