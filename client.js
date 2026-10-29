@@ -488,8 +488,12 @@ window.__ModuleLoader__.load({
             status.pairing?.requests?.length
               ? status.pairing.requests.map(request => h('div', { className: 'bbh-actions', key: request.pairId },
                 h('span', null, `${request.deviceName || '未命名设备'}  ${request.ip || ''}  ${new Date(request.createdAt).toLocaleTimeString()}`),
-                h('button', { type: 'button', className: 'bbh-btn', disabled: busy, onClick: () => void approvePairing(request.pairId) }, '允许'),
-                h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => void rejectPairing(request.pairId) }, '拒绝'),
+                request.status === 'approved_pending_delivery'
+                  ? h('span', { className: 'bbh-note' }, '已批准，等待手机领取 token')
+                  : h('div', { className: 'bbh-actions' },
+                    h('button', { type: 'button', className: 'bbh-btn', disabled: busy, onClick: () => void approvePairing(request.pairId) }, '允许'),
+                    h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => void rejectPairing(request.pairId) }, '拒绝'),
+                  ),
               ))
               : h('p', { className: 'bbh-note' }, '没有待批准设备。'),
             status.pairing?.devices?.length
