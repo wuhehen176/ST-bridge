@@ -265,3 +265,38 @@ test('ended turns do not claim later out-of-turn inbox removals', () => {
   }))
   assert.equal(recoverTurn(events, 'req-blocked'), undefined)
 })
+
+test('finalAssistantText keeps visible text even when the message also has a tool call', () => {
+  const events = [
+    event('turn/start', { turn: 9 }),
+    event('user/message', { id: 'req-9', source: { rpcId: 'req-9' } }),
+    event('assistant/message', {
+      turn: 9,
+      message: {
+        content: [
+          { type: 'text', text: '本轮正文' },
+          { type: 'tool-call', name: 'tableEdit', arguments: '{}' },
+        ],
+      },
+    }),
+    event('turn/end', { turn: 9, reason: { kind: 'completed' } }),
+  ]
+  const result = recoverTurn(events, 'req-9')
+  assert.equal(result.ok, true)
+  assert.equal(result.answer, '本轮正文')
+})
+
+test('finalAssistantText still returns empty when every assistant step is text-less', () => {
+  const events = [
+    event('turn/start', { turn: 10 }),
+    event('user/message', { id: 'req-10', source: { rpcId: 'req-10' } }),
+    event('assistant/message', {
+      turn: 10,
+      message: { content: [{ type: 'tool-call', name: 'tableEdit', arguments: '{}' }] },
+    }),
+    event('turn/end', { turn: 10, reason: { kind: 'completed' } }),
+  ]
+  const result = recoverTurn(events, 'req-10')
+  assert.equal(result.ok, true)
+  assert.equal(result.answer, '')
+})
