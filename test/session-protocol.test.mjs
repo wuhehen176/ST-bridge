@@ -1249,3 +1249,32 @@ test('effective cwd falls back to the first DSH workspace', async () => {
     assert.equal(app.engine.effectiveCwd(), process.cwd())
   } finally { await app.close() }
 })
+
+test('selftest endpoints exercise JSON, auth and SSE without requiring a token', async () => {
+  const app = await start()
+  try {
+    app.engine.config.authToken = 'secret-token'
+    const headers = {
+      origin: 'http://tauri.localhost',
+      'content-type': 'application/json',
+      'x-stb-selftest': '1',
+      authorization: 'Bearer secret-token',
+    }
+    const post = await fetch(`${app.base}/v1/bridge/selftest`, { method: 'POST', headers, body: JSON.stringify({ ping: 1 }) })
+    assert.equal(post.status, 200)
+    const body = await post.json()
+    assert.equal(body.ok, true)
+    assert.equal(body.auth_ok, true)
+    assert.equal(body.test_header, '1')
+    assert.deepEqual(body.body_keys, ['ping'])
+    assert.equal(body.origin, 'http://tauri.localhost')
+
+    const unauth = await fetch(`${app.base}/v1/bridge/selftest`)
+    assert.equal(unauth.status, 200)
+    assert.equal((await unauth.json()).auth_ok, false)
+
+    const stream = await fetch(`${app.base}/v1/bridge/selftest/stream`)
+    assert.match(stream.headers.get('content-type') ?? '', /text\/event-stream/)
+    assert.match(await stream.text(), /"stream":true/)
+  } finally { await app.close() }
+})

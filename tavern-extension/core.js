@@ -334,7 +334,7 @@ export async function adaptBody({ url, pageOrigin, body, base, parseObject = JSO
   const selection = selections[scope]
   const context = { version: 1, profile_id: typeof selection === 'string' ? selection : selection?.id || 'original', sources,
     ...(selection?.hash ? { profile_hash: selection.hash } : {}) }
-  context.transport = { version: 1, adapter_version: '0.3.1', trace_id: globalThis.crypto.randomUUID(), messages_digest: await messagesDigest(messages) }
+  context.transport = { version: 1, adapter_version: '0.3.2', trace_id: globalThis.crypto.randomUUID(), messages_digest: await messagesDigest(messages) }
   const next = proxy
     ? { ...body, messages, custom_include_body: JSON.stringify({ ...include, ...(Object.hasOwn(include, 'messages') ? { messages } : {}), dsh_context: context }) }
     : { ...body, messages, dsh_session: session, dsh_context: context }

@@ -1,5 +1,5 @@
 import { yaml } from '/lib.js'
-import { installAdapter, localBase, PreviewCopies, scopeKey, validateMaterialsPolicy } from './core.js?v=0.3.1'
+import { installAdapter, localBase, PreviewCopies, scopeKey, validateMaterialsPolicy } from './core.js?v=0.3.2'
 
 const KEY = 'st_bridge_context_v1'
 const ctx = () => window.SillyTavern.getContext()
@@ -156,6 +156,8 @@ function mount() {
     <div class="inline-drawer-content"><div class="stbc-body">
     <label class="stbc-check"><input type="checkbox" data-id="enabled"><span>仅适配指定的本机桥接</span></label>
     <label class="stbc-field">桥接地址<input class="text_pole" data-id="base" placeholder="http://127.0.0.1:43121/v1"></label>
+    <button type="button" class="menu_button" data-id="selftest">连接自检（手机 / LAN）</button>
+    <pre data-id="selftest-status" style="white-space:pre-wrap;max-height:200px;overflow:auto"></pre>
     <details class="stbc-box"><summary>按酒馆聊天自动隔离 DSH 会话</summary>
     <label class="stbc-check"><input type="checkbox" data-id="auto-enabled"><span>自动注入 dsh_session / 改写 chat_id</span></label>
     <label class="stbc-field">默认 client_id（无 dsh_session 时）<input class="text_pole" data-id="auto-client" placeholder="yuzi-phone"></label>
@@ -221,6 +223,54 @@ function mount() {
     catch (error) { event.target.value = settings.base; status(error.message) }
   }
   field('token').oninput = event => { token = event.target.value }
+  field('selftest').onclick = async () => {
+    const output = field('selftest-status')
+    const lines = []
+    const write = text => { output.textContent = [...lines, text].join('\n') }
+    let base
+    try {
+      base = localBase(settings.base)
+    } catch (error) {
+      output.textContent = `桥接地址无效：${error.message}`
+      return
+    }
+    const origin = new URL(base).origin
+    const headers = token ? { authorization: `Bearer ${token}` } : {}
+    const timed = async (label, operation) => {
+      const started = performance.now()
+      try {
+        const detail = await operation()
+        lines.push(`${label}: OK  ${Math.round(performance.now() - started)}ms  ${detail}`)
+      } catch (error) {
+        lines.push(`${label}: FAIL  ${Math.round(performance.now() - started)}ms  ${error instanceof Error ? error.message : String(error)}`)
+      }
+      write('测试中…')
+    }
+    output.textContent = '测试中…'
+    await timed('GET /health', async () => {
+      const response = await fetch(`${origin}/health`, { cache: 'no-store', headers })
+      return `HTTP ${response.status}`
+    })
+    await timed('POST /v1/bridge/selftest', async () => {
+      const response = await fetch(`${base}/bridge/selftest`, {
+        method: 'POST',
+        cache: 'no-store',
+        headers: { ...headers, 'content-type': 'application/json', 'x-stb-selftest': '1' },
+        body: JSON.stringify({ ping: 1 }),
+      })
+      const data = await response.json().catch(() => ({}))
+      return `HTTP ${response.status} auth_ok=${data.auth_ok} header=${data.test_header}`
+    })
+    await timed('GET /v1/bridge/selftest/stream', async () => {
+      const response = await fetch(`${base}/bridge/selftest/stream`, {
+        cache: 'no-store',
+        headers: { ...headers, accept: 'text/event-stream' },
+      })
+      const text = await response.text()
+      return `HTTP ${response.status} sse=${text.includes('data:')}`
+    })
+    write('完成')
+  }
   {
     const auto = settings.autoInject
     const set = (key, value) => { auto[key] = value; save() }

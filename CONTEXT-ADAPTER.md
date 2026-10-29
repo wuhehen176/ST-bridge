@@ -351,6 +351,28 @@ node install-tavern.mjs --extensions-dir "<TauriTavern>/data/default-user/extens
   桥接 `plainCompat` 的共享会话兜底；
 - 安装后刷新 TauriTavern 页面，再查回执是否为 `adapter_state: traced`。
 
+### 连接自检（0.9.7 / 扩展 0.3.2）
+
+手机或 TauriTavern 上先点扩展里的：
+
+```text
+连接自检（手机 / LAN）
+```
+
+依次验证：
+
+1. `GET /health`
+2. `POST /v1/bridge/selftest`
+   - JSON 请求
+   - Authorization 是否到达
+   - CORS 预检
+3. `GET /v1/bridge/selftest/stream`
+   - SSE 是否可读
+
+自检接口不返回聊天内容，只返回方法、Origin、`auth_ok` 和测试头是否存在。
+
+---
+
 ### 手机 / TauriTavern 访问（0.9.6）
 
 面板「服务与安全」新增：
