@@ -310,6 +310,19 @@ window.__ModuleLoader__.load({
         return `已生成新的追加分隔标记 ${value.nonce}。`
       })
 
+      const enableMobile = () => run('启用局域网访问', async () => {
+        const value = await rpc('action', { action: 'enable_mobile_access' })
+        const urls = (value.urls || []).join('  ')
+        return value.token
+          ? `已开启并重启。地址：${urls}；令牌：${value.token}（只显示一次，请立即保存）`
+          : `已开启并重启。地址：${urls}；沿用现有令牌。`
+      })
+
+      const disableMobile = () => run('关闭局域网访问', async () => {
+        await rpc('action', { action: 'disable_mobile_access' })
+        return '已关闭局域网访问并恢复仅本机监听。'
+      })
+
       const showLogPath = async () => {
         try {
           const value = await rpc('action', { action: 'open_log' })
@@ -400,6 +413,15 @@ window.__ModuleLoader__.load({
 
         status === null ? null : tab === 'general' ? h('div', { className: 'bbh-card' },
           h('h3', { className: 'bbh-card-title' }, '服务与安全'),
+          h('p', { className: 'bbh-note' }, '手机 / TauriTavern 访问：开启后监听 0.0.0.0 并自动生成令牌；需在防火墙放行端口，且只建议在局域网或私有网络使用。'),
+          status.network?.mobileEnabled ? h('div', null,
+            h('p', { className: 'bbh-note' }, `当前局域网地址：${(status.network.urls || []).join('  ') || '未检测到 IPv4 地址'}；令牌${status.network.tokenSet ? '已设置' : '未设置'}。`),
+            h('div', { className: 'bbh-actions' },
+              h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => void disableMobile() }, '关闭局域网访问'),
+            ),
+          ) : h('div', { className: 'bbh-actions' },
+            h('button', { type: 'button', className: 'bbh-btn', disabled: busy, onClick: () => void enableMobile() }, '启用局域网 / 手机访问'),
+          ),
           h('div', { className: 'bbh-grid2' },
             h(Field, { label: '监听地址', hint: '默认仅 127.0.0.1；局域网需开启 allowRemote 并设置 token。' },
               h('input', { className: 'bbh-input', value: form.host, onChange: e => setField('host', e.target.value) })),

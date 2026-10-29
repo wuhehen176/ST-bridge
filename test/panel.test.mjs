@@ -168,3 +168,33 @@ test('PanelController actions require confirmation for destructive operations', 
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('enable mobile access persists a LAN host, generates a token and restarts', async () => {
+  const dir = tempDir()
+  try {
+    const config = normalizeConfig({ stateDir: dir, cwd: dir, port: 43121 })
+    let restarts = 0
+    const serverControl = {
+      isRunning: () => true,
+      address: () => ({ host: '0.0.0.0', port: 43121 }),
+      start: async () => {},
+      stop: async () => {},
+      restart: async () => { restarts += 1 },
+    }
+    const panel = new PanelController({
+      ctx: {}, config, store: {}, engine: { capabilities: () => ({}) }, serverControl, log: () => {}, version: '0.9.5',
+    })
+    const result = await panel.action({ action: 'enable_mobile_access' })
+    assert.equal(result.ok, true)
+    assert.equal(restarts, 1)
+    assert.equal(config.host, '0.0.0.0')
+    assert.equal(config.allowRemote, true)
+    assert.ok(config.authToken.length >= 32)
+    assert.equal(result.token, config.authToken)
+    const saved = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8'))
+    assert.equal(saved.host, '0.0.0.0')
+    assert.equal(saved.allowRemote, true)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

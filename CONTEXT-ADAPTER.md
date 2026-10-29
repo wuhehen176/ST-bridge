@@ -351,6 +351,35 @@ node install-tavern.mjs --extensions-dir "<TauriTavern>/data/default-user/extens
   桥接 `plainCompat` 的共享会话兜底；
 - 安装后刷新 TauriTavern 页面，再查回执是否为 `adapter_state: traced`。
 
+### 手机 / TauriTavern 访问（0.9.6）
+
+面板「服务与安全」新增：
+
+```text
+[启用局域网 / 手机访问]
+```
+
+点击后：
+
+- 监听地址改为 `0.0.0.0`；
+- 开启 `allowRemote`；
+- 未设置 token 时自动生成一个；
+- 重启桥接；
+- 显示本机局域网 IPv4 地址，例如：
+
+```text
+http://192.168.1.20:43121/v1
+```
+
+手机端扩展填这个地址，并填入生成的 token。
+
+注意：
+
+- Windows 防火墙仍需手动放行 TCP 43121；
+- 只建议在局域网或 Tailscale/ZeroTier 等私有网络使用；
+- 不要直接暴露到公网；
+- 点击「关闭局域网访问」会恢复 `127.0.0.1` 并重启。
+
 ### 工作区 cwd 兜底（0.9.4）
 
 DSH Desktop 启动时的 `process.cwd()` 可能是 `...\dsh-desktop\launch-root`，
