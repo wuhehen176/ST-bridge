@@ -6,3 +6,4 @@ state.json
 context-profiles*
 fixed-presets*
 *.corrupt-*
+devices.json

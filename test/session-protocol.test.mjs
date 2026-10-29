@@ -6,6 +6,7 @@ import test from 'node:test'
 import { BridgeEngine } from '../lib/engine.js'
 import { createBridgeServer } from '../lib/server.js'
 import { BridgeStore } from '../lib/store.js'
+import { PairingService } from '../lib/pairing.js'
 import { messageHash } from '../lib/context.js'
 import { adaptBody } from '../tavern-extension/core.js'
 
@@ -124,12 +125,14 @@ async function start() {
   const cfg = makeConfig(dir)
   const store = new BridgeStore(join(dir, 'state.json'))
   const engine = new BridgeEngine(host, cfg, store, () => {})
-  const bridge = createBridgeServer({ engine, config: cfg, log: () => {} })
+  const pairing = new PairingService({ file: join(dir, 'devices.json') })
+  const bridge = createBridgeServer({ engine, config: cfg, log: () => {}, pairing })
   const port = await bridge.listen()
   return {
     base: `http://127.0.0.1:${port}`,
     engine,
     host,
+    pairing,
     sessions: host.sessions,
     close: async () => {
       await bridge.close()
@@ -1295,5 +1298,49 @@ test('CORS preflight allows the self-test and future pairing headers', async () 
     for (const name of ['authorization', 'content-type', 'x-stb-selftest', 'x-stb-pair-request', 'x-stb-poll-token']) {
       assert.match(allowed, new RegExp(name, 'i'))
     }
+  } finally { await app.close() }
+})
+
+test('pairing endpoints deliver a device token that can chat but cannot manage', async () => {
+  const app = await start()
+  try {
+    app.engine.config.authToken = 'shared-secret'
+    const invite = app.pairing.startInvite()
+    const requested = await fetch(`${app.base}/v1/bridge/pair/request`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code: invite.code, deviceName: 'Test Phone' }),
+    })
+    assert.equal(requested.status, 200)
+    const pending = await requested.json()
+    assert.equal(pending.status, 'pending')
+    app.pairing.approve(pending.pairId)
+
+    const polled = await fetch(`${app.base}/v1/bridge/pair/status`, {
+      headers: { 'x-stb-pair-request': pending.pairId, 'x-stb-poll-token': pending.pollToken },
+    })
+    assert.equal(polled.status, 200)
+    const delivered = await polled.json()
+    assert.ok(delivered.deviceToken)
+    assert.equal(polled.headers.get('cache-control'), 'no-store')
+
+    const acked = await fetch(`${app.base}/v1/bridge/pair/ack`, {
+      method: 'POST',
+      headers: { 'x-stb-pair-request': pending.pairId, 'x-stb-poll-token': pending.pollToken },
+    })
+    assert.equal((await acked.json()).status, 'active')
+
+    const chat = await fetch(`${app.base}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${delivered.deviceToken}` },
+      body: JSON.stringify({ messages: fixedMessages(), dsh_session: dsh({ chat_id: 'paired-chat', request_id: 'paired-1', action: 'generate', fixed_message_count: 2, fixed_message_types: ['prefix', 'spec'] }) }),
+    })
+    assert.equal(chat.status, 200, await chat.text())
+
+    const status = await fetch(`${app.base}/v1/bridge/status?chat_id=paired-chat`, {
+      headers: { authorization: `Bearer ${delivered.deviceToken}` },
+    })
+    assert.equal(status.status, 403)
+    assert.equal((await status.json()).error.code, 'device_forbidden')
   } finally { await app.close() }
 })

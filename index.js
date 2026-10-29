@@ -11,6 +11,7 @@ import { LOADED_BUILD } from './lib/build-info.js'
 import { BridgeEngine } from './lib/engine.js'
 import { createLogger } from './lib/log.js'
 import { PanelController, applyPersistedSettings, registerPanelRpc } from './lib/panel.js'
+import { PairingService } from './lib/pairing.js'
 import { createBridgeServer, VERSION } from './lib/server.js'
 import { BridgeStore } from './lib/store.js'
 import { normalizeSnapshotMarker } from './lib/snapshot-diff.js'
@@ -119,6 +120,7 @@ export function apply(ctx, rawConfig) {
     for (const warning of persisted.warnings) log(`[panel] 忽略无效的持久设置: ${warning}`)
     const store = new BridgeStore(join(config.stateDir, 'state.json'))
     if (store.loadError) log(`[bridge] 状态文件损坏，已备份并重新开始: ${store.loadError.message}`)
+    const pairing = new PairingService({ file: join(config.stateDir, 'devices.json'), log })
     const engine = new BridgeEngine(ctx, config, store, log)
     let activeServer
     let running = false
@@ -129,7 +131,7 @@ export function apply(ctx, rawConfig) {
         : null,
       async start() {
         if (activeServer) return
-        const next = createBridgeServer({ engine, config, log })
+        const next = createBridgeServer({ engine, config, log, pairing })
         await next.listen()
         activeServer = next
         running = true
@@ -151,6 +153,7 @@ export function apply(ctx, rawConfig) {
       store,
       engine,
       serverControl,
+      pairing,
       log,
       version: VERSION,
     })

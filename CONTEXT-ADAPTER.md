@@ -351,6 +351,38 @@ node install-tavern.mjs --extensions-dir "<TauriTavern>/data/default-user/extens
   桥接 `plainCompat` 的共享会话兜底；
 - 安装后刷新 TauriTavern 页面，再查回执是否为 `adapter_state: traced`。
 
+### 配对核心（0.10.0）
+
+本版先完成桥接侧状态机，不含面板二维码和扩展扫码。
+
+接口：
+
+```text
+POST /v1/bridge/pair/request   { code, device_name }
+GET  /v1/bridge/pair/status    X-STB-Pair-Request + X-STB-Poll-Token
+POST /v1/bridge/pair/ack       X-STB-Pair-Request + X-STB-Poll-Token
+```
+
+状态：
+
+```text
+invite: active / consumed / expired / cancelled
+request: pending / approved_pending_delivery / delivered / rejected / expired
+device: pending_delivery / active / revoked
+```
+
+规则：
+
+- 一个邀请只允许一个申请，先到先占；
+- 批准后设备先进入 `pending_delivery`；
+- 同一 pollToken 可重复领取同一个 token；
+- ACK 后设备才 `active`；
+- 未 ACK 时桥接重启，pending 设备丢弃，需要重新配对；
+- `devices.json` 只存 token 哈希，读写原子替换；
+- 文件损坏时设备 token 全部拒绝；
+- 设备 token 只能调用 chat/models/capabilities/health，不能调用 status/receipts；
+- 生成邀请、批准、撤销只走本机面板 RPC，不提供 HTTP 管理接口。
+
 ### 连接自检（0.9.7 / 扩展 0.3.2）
 
 手机或 TauriTavern 上先点扩展里的：
