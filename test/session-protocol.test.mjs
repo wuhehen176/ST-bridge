@@ -1278,3 +1278,22 @@ test('selftest endpoints exercise JSON, auth and SSE without requiring a token',
     assert.match(await stream.text(), /"stream":true/)
   } finally { await app.close() }
 })
+
+test('CORS preflight allows the self-test and future pairing headers', async () => {
+  const app = await start()
+  try {
+    const response = await fetch(`${app.base}/v1/bridge/selftest`, {
+      method: 'OPTIONS',
+      headers: {
+        origin: 'http://tauri.localhost',
+        'access-control-request-method': 'POST',
+        'access-control-request-headers': 'authorization,content-type,x-stb-selftest,x-stb-pair-request,x-stb-poll-token',
+      },
+    })
+    assert.equal(response.status, 204)
+    const allowed = response.headers.get('access-control-allow-headers') ?? ''
+    for (const name of ['authorization', 'content-type', 'x-stb-selftest', 'x-stb-pair-request', 'x-stb-poll-token']) {
+      assert.match(allowed, new RegExp(name, 'i'))
+    }
+  } finally { await app.close() }
+})

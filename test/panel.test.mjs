@@ -198,3 +198,23 @@ test('enable mobile access persists a LAN host, generates a token and restarts',
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('rotate_auth_token returns the new value once and persists it', async () => {
+  const dir = tempDir()
+  try {
+    const config = normalizeConfig({ stateDir: dir, cwd: dir, port: 43121 })
+    const panel = new PanelController({
+      ctx: {}, config, store: {}, engine: { capabilities: () => ({}) },
+      serverControl: { isRunning: () => true, start: async () => {}, stop: async () => {}, restart: async () => {} },
+      log: () => {}, version: '0.9.8',
+    })
+    const result = await panel.action({ action: 'rotate_auth_token' })
+    assert.equal(result.ok, true)
+    assert.ok(result.token.length >= 32)
+    assert.equal(config.authToken, result.token)
+    const saved = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8'))
+    assert.equal(saved.authToken, result.token)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

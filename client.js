@@ -323,6 +323,11 @@ window.__ModuleLoader__.load({
         return '已关闭局域网访问并恢复仅本机监听。'
       })
 
+      const rotateAuthToken = () => run('生成桥接令牌', async () => {
+        const value = await rpc('action', { action: 'rotate_auth_token' })
+        return `新令牌：${value.token}（只显示一次，请复制到手机扩展）`
+      })
+
       const showLogPath = async () => {
         try {
           const value = await rpc('action', { action: 'open_log' })
@@ -443,6 +448,12 @@ window.__ModuleLoader__.load({
                 disabled: busy || (!status.service.authTokenSet && !form.authToken && !form.clearAuthToken),
                 onClick: () => setForm(current => ({ ...current, authToken: '', clearAuthToken: true })),
               }, form.clearAuthToken ? '将清除' : '清除'),
+              h('button', {
+                type: 'button',
+                className: 'bbh-btn secondary',
+                disabled: busy,
+                onClick: () => void rotateAuthToken(),
+              }, '生成'),
             ),
           ),
           h('div', { className: 'bbh-grid2' },
