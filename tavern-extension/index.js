@@ -1,5 +1,5 @@
 import { yaml } from '/lib.js'
-import { installAdapter, localBase, PreviewCopies, scopeKey, validateMaterialsPolicy, mergeMaterialsPolicies } from './core.js?v=0.4.1'
+import { installAdapter, localBase, PreviewCopies, scopeKey, validateMaterialsPolicy, mergeMaterialsPolicies } from './core.js?v=0.4.2'
 
 const KEY = 'st_bridge_context_v1'
 const ctx = () => window.SillyTavern.getContext()
