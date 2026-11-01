@@ -383,6 +383,16 @@ export async function adaptBody({ url, pageOrigin, body, base, parseObject = JSO
   if (!target) return null
   const { proxy, actual } = target
   const envelope = proxy ? proxyEnvelope(body, actual, deviceToken, parseObject) : body
+  const include = !target.models && proxy && body.custom_include_body ? parseObject(body.custom_include_body) : {}
+  if (!include || typeof include !== 'object' || Array.isArray(include)) throw new Error('附加主体参数必须为对象')
+  const effective = { ...body, ...include }
+  let session = effective.dsh_session ?? effective.dshSession ?? effective.metadata?.dsh_session ?? effective.metadata?.dshSession
+  // Controls own their exact session/scope and rules. Only supply pairing credentials;
+  // do not apply chat rewrites, material filtering or generation profiles to them.
+  if (session?.protocol_version === 1 && typeof session.chat_id === 'string' && session.chat_id
+    && ['sync_rules', 'reset'].includes(session.action)) {
+    return deviceToken ? { body: envelope, preview: null, deviceToken } : null
+  }
   let route
   if (target.id) {
     if (typeof resolveEndpoint !== 'function') throw new Error('插件专属地址需要新版手机扩展，请先连接桥接读取接入清单')
@@ -393,10 +403,6 @@ export async function adaptBody({ url, pageOrigin, body, base, parseObject = JSO
     if (route.enabled === false) throw new Error(`插件接入已停用：${target.id}`)
   }
   if (target.models) return proxy ? { body: envelope, preview: null, deviceToken } : null
-  const include = proxy && body.custom_include_body ? parseObject(body.custom_include_body) : {}
-  if (!include || typeof include !== 'object' || Array.isArray(include)) throw new Error('附加主体参数必须为对象')
-  const effective = { ...body, ...include }
-  let session = effective.dsh_session ?? effective.dshSession ?? effective.metadata?.dsh_session ?? effective.metadata?.dshSession
   const auto = autoInject && typeof autoInject === 'object' ? autoInject : {}
   const safeChatId = String(chatId ?? '').trim().replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').slice(0, 200)
   const injectedChatId = auto.enabled === true && safeChatId ? `${String(auto.prefix ?? '')}${safeChatId}` : ''
@@ -466,7 +472,7 @@ export async function adaptBody({ url, pageOrigin, body, base, parseObject = JSO
   const selection = selections[scope]
   const context = { version: 1, profile_id: typeof selection === 'string' ? selection : selection?.id || 'original', sources,
     ...(selection?.hash ? { profile_hash: selection.hash } : {}) }
-  context.transport = { version: 1, adapter_version: '0.4.2', trace_id: traceId(), messages_digest: await messagesDigest(messages) }
+  context.transport = { version: 1, adapter_version: '0.4.3', trace_id: traceId(), messages_digest: await messagesDigest(messages) }
   const next = proxy
     ? { ...envelope, messages, custom_include_body: JSON.stringify({ ...include, ...(Object.hasOwn(include, 'messages') ? { messages } : {}), dsh_context: context }) }
     : { ...body, messages, dsh_session: session, dsh_context: context }
@@ -510,7 +516,15 @@ export function installAdapter(host, options) {
     try { body = JSON.parse(text) } catch { return forward() }
     const result = await adaptBody({ url: url.href, pageOrigin: host.location.origin, body, base, parseObject: options.parseObject, selections: options.selections(), entries: options.entries(), materials: options.materials, autoInject: options.autoInject?.() ?? {}, chatId: options.chatId?.() ?? '', deviceToken: options.deviceToken?.() ?? '', resolveEndpoint: options.resolveEndpoint, authorization: new Headers(init?.headers ?? request?.headers).get('authorization') || '' })
     if (!result) return forward()
-    if (!result.preview) return original.call(receiver, input, { ...init, method: 'POST', body: JSON.stringify(result.body) })
+    if (!result.preview) {
+      const outgoingInit = { ...init, method: 'POST', body: JSON.stringify(result.body) }
+      if (result.deviceToken && url.origin !== host.location.origin) {
+        const headers = new Headers(init?.headers ?? request?.headers)
+        headers.set('authorization', `Bearer ${result.deviceToken}`)
+        outgoingInit.headers = headers
+      }
+      return original.call(receiver, input, outgoingInit)
+    }
     try {
       const headers = new Headers(init?.headers ?? request?.headers)
       const secrets = ['authorization', 'x-api-key', 'cookie'].map(key => headers.get(key)).filter(Boolean)

@@ -1,5 +1,5 @@
 import { yaml } from '/lib.js'
-import { installAdapter, localBase, PreviewCopies, scopeKey, validateMaterialsPolicy, mergeMaterialsPolicies } from './core.js?v=0.4.2'
+import { installAdapter, localBase, PreviewCopies, scopeKey, validateMaterialsPolicy, mergeMaterialsPolicies } from './core.js?v=0.4.3'
 
 const KEY = 'st_bridge_context_v1'
 const ctx = () => window.SillyTavern.getContext()
@@ -173,7 +173,7 @@ function mount() {
     <pre data-id="endpoint-list" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre>
     <button type="button" class="menu_button" data-id="selftest">连接自检（手机 / LAN）</button>
     <pre data-id="selftest-status" style="white-space:pre-wrap;max-height:200px;overflow:auto"></pre>
-    <details class="stbc-box"><summary>手机配对（输入配对码）</summary>
+    <details class="stbc-box"><summary>输入配对码</summary>
     <label class="stbc-field">设备名<input class="text_pole" data-id="pair-device" placeholder="TauriTavern / iPhone"></label>
     <label class="stbc-field">配对码<input class="text_pole" data-id="pair-code" placeholder="A7K9-2M4Q7X"></label>
     <button type="button" class="menu_button" data-id="pair-submit">提交配对</button>
