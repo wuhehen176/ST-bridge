@@ -247,3 +247,13 @@ test('paired proxy rejects invalid header maps before forwarding instead of sile
   }
   await assert.rejects(adaptBody({ url: proxy, pageOrigin: 'http://localhost:8000', body: { ...body, custom_include_headers: '{broken' }, base, deviceToken: 'device-token' }), SyntaxError)
 })
+
+test('adapter preserves image parts while cleaning text tags', async () => {
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nXQAAAAASUVORK5CYII='
+  const messages = [{ role: 'user', content: [{ type: 'text', text: 'before <bbi_image>x</bbi_image> after' }, { type: 'image_url', image_url: { url: png } }] }]
+  const body = { messages, dsh_session: session }
+  const result = await adaptBody({ url: `${base}/chat/completions`, pageOrigin: 'http://localhost:8000', body, base })
+  assert.equal(result.body.messages[0].content[1].type, 'image_url')
+  assert.match(result.body.messages[0].content[0].text, /before/)
+  assert.doesNotMatch(result.body.messages[0].content[0].text, /bbi_image/)
+})

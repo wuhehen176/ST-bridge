@@ -30,12 +30,14 @@ class MockAgent {
     }
     this.turn = 0
     this.prompts = []
+    this.contents = []
     this.failMode = null
   }
 
   followup(message) {
-    const prompt = message?.content?.[0]?.text ?? ''
+    const prompt = message?.content?.filter(part => part?.type === 'text').map(part => part.text).join('\n') ?? ''
     this.prompts.push(prompt)
+    this.contents.push(message?.content ?? [])
     const turn = ++this.turn
     setTimeout(() => {
       this.events.push({ type: 'turn/start', data: { turn } })
@@ -1442,5 +1444,21 @@ test('bound skill is loaded, echoed, and content changes require a reset', async
     })
     const assembled = app.engine.augmentProtocolAssembly({ sections: [] }, 'session-st-skill-injected')
     assert.ok(assembled.sections.some(section => section.name === 'st-bridge:skill' && section.text.includes('TEST_SKILL')))
+  } finally { await app.close() }
+})
+
+test('user image parts are admitted and passed to the DSH Agent', async () => {
+  const app = await start({ attachments: { admitPromptContent: async content => content } })
+  try {
+    const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nXQAAAAASUVORK5CYII='
+    const result = await postDsh(app.base, {
+      model: 'dsh-default',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'see image' }, { type: 'image_url', image_url: { url: png } }] }],
+      dsh_session: { protocol_version: 1, chat_id: 'image-chat', request_id: 'image-1', fixed_message_count: 0, fixed_message_types: [] },
+    })
+    assert.equal(result.response.status, 200, result.text)
+    const content = [...app.sessions.values()].flatMap(agent => agent.contents).at(-1)
+    assert.ok(content.some(part => part.type === 'image'))
+    assert.ok(content.some(part => part.type === 'text' && part.text.includes('see image')))
   } finally { await app.close() }
 })

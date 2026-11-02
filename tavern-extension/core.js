@@ -69,8 +69,14 @@ export function messageText(message) {
   return message.content.map(part => {
     if (typeof part === 'string') return part
     if (part?.type === 'text' && typeof part.text === 'string') return part.text
-    throw new Error('不改动非文本请求')
+    return ''
   }).join('\n')
+}
+
+function messageImages(message) {
+  return Array.isArray(message.content)
+    ? message.content.filter(part => part && part.type === 'image_url')
+    : []
 }
 
 function imageRemovalRanges(text, tags = ['bbi_image']) {
@@ -124,7 +130,8 @@ export function cleanImageMessages(messages, fixedCount = 0, customTags = []) {
     else {
       let start = 0
       content = message.content.map(part => {
-        const value = typeof part === 'string' ? part : part.text
+        const value = typeof part === 'string' ? part : part?.type === 'text' ? part.text : ''
+        if (part && typeof part === 'object' && part.type !== 'text') return part
         const next = retainedText(value, start, ranges)
         start += value.length + 1 // messageText joins parts with one newline.
         return next === value ? part : typeof part === 'string' ? next : { ...part, text: next }
@@ -211,7 +218,9 @@ export function filterWorldMessages(messages, fixedCount, catalog, activated, po
     if (typeof message.content === 'string') return { ...message, content: retainedText(text, 0, ranges) }
     let start = 0
     return { ...message, content: message.content.map(part => {
-      const value = typeof part === 'string' ? part : part.text, next = retainedText(value, start, ranges)
+      const value = typeof part === 'string' ? part : part?.type === 'text' ? part.text : ''
+      if (part && typeof part === 'object' && part.type !== 'text') return part
+      const next = retainedText(value, start, ranges)
       start += value.length + 1
       return typeof part === 'string' ? next : { ...part, text: next }
     }) }
@@ -479,7 +488,7 @@ export async function adaptBody({ url, pageOrigin, body, base, parseObject = JSO
   const selection = selections[scope]
   const context = { version: 1, profile_id: typeof selection === 'string' ? selection : selection?.id || 'original', sources,
     ...(selection?.hash ? { profile_hash: selection.hash } : {}) }
-  context.transport = { version: 1, adapter_version: '0.4.4', trace_id: traceId(), messages_digest: await messagesDigest(messages) }
+  context.transport = { version: 1, adapter_version: '0.4.5', trace_id: traceId(), messages_digest: await messagesDigest(messages) }
   const next = proxy
     ? { ...envelope, messages, custom_include_body: JSON.stringify({ ...include, ...(Object.hasOwn(include, 'messages') ? { messages } : {}), dsh_context: context }) }
     : { ...body, messages, dsh_session: session, dsh_context: context }

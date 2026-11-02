@@ -35,10 +35,13 @@ test('normalizeMessages flattens text parts without dropping content', () => {
   assert.equal(messages[0].text, 'foo\nbar')
 })
 
-test('normalizeMessages rejects non-text parts instead of silently dropping them', () => {
+test('normalizeMessages rejects unsupported parts and non-data images', () => {
   assert.throws(() => normalizeMessages([
-    { role: 'user', content: [{ type: 'image_url', image_url: { url: 'x' } }] },
-  ]), /只支持文本/)
+    { role: 'user', content: [{ type: 'audio', audio: {} }] },
+  ]), /不支持片段/)
+  assert.throws(() => normalizeMessages([
+    { role: 'user', content: [{ type: 'image_url', image_url: { url: 'https://example.test/a.png' } }] },
+  ]), /data:/)
 })
 
 test('classifyContext starts a new session', () => {
