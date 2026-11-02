@@ -641,7 +641,7 @@ test('explicit baibai-image/default keeps the old chat_id binding', async () => 
   }
 })
 
-test('tool protocol and strict JSON schema are rejected explicitly', async () => {
+test('invalid tool protocol and strict JSON schema are rejected explicitly', async () => {
   const app = await start()
   try {
     const tools = await postDsh(app.base, {
@@ -653,7 +653,7 @@ test('tool protocol and strict JSON schema are rejected explicitly', async () =>
       }),
     })
     assert.equal(tools.response.status, 400, tools.text)
-    assert.equal(tools.json.error.code, 'unsupported_tool_mode')
+    assert.equal(tools.json.error.code, 'invalid_tools')
 
     const toolRole = await postDsh(app.base, {
       messages: [{ role: 'tool', content: 'x' }],
@@ -663,7 +663,7 @@ test('tool protocol and strict JSON schema are rejected explicitly', async () =>
       }),
     })
     assert.equal(toolRole.response.status, 400, toolRole.text)
-    assert.equal(toolRole.json.error.code, 'unsupported_tool_mode')
+    assert.equal(toolRole.json.error.code, 'invalid_tool_result')
 
     const schema = await postDsh(app.base, {
       response_format: { type: 'json_schema', json_schema: { name: 'x', schema: {} } },
@@ -703,7 +703,8 @@ test('capabilities endpoint describes the persistent protocol without creating a
     const body = await response.json()
     assert.equal(body.object, 'bridge.capabilities')
     assert.deepEqual(body.protocol_versions, [1])
-    assert.equal(body.tool_calls, false)
+    assert.equal(body.tool_calls, true)
+    assert.deepEqual(body.external_tools, { streaming: false, execution: 'caller', tool_choice: ['auto'], parallel_execution: false })
     assert.equal(body.strict_json, false)
     assert.deepEqual(body.scope_keys, ['client_id', 'chat_id', 'task_id'])
     assert.ok(body.control_actions.includes('sync_rules'))

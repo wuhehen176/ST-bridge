@@ -447,6 +447,13 @@ export async function adaptBody({ url, pageOrigin, body, base, parseObject = JSO
   }
   if (!session || session.protocol_version !== 1 || typeof session.chat_id !== 'string' || !session.chat_id) return null
   if ((session.action || 'generate') !== 'generate') return null // sync/reset keep their original contract
+  if (effective.tools?.length || effective.messages?.some(message => message?.role === 'tool' || message?.tool_calls?.length)) {
+    // Tool calls/results are a protocol chain, not text to clean, hash or reattribute.
+    return {
+      body: proxy ? { ...envelope, custom_include_body: JSON.stringify({ ...include, dsh_session: session }) } : { ...body, dsh_session: session },
+      preview: null, deviceToken,
+    }
+  }
   // A proxy request may carry dsh_session in the outer body while custom_include_body
   // is what actually reaches the bridge. Always forward the resolved session,
   // otherwise the bridge falls back to plainCompat and collapses separate plugins
@@ -472,7 +479,7 @@ export async function adaptBody({ url, pageOrigin, body, base, parseObject = JSO
   const selection = selections[scope]
   const context = { version: 1, profile_id: typeof selection === 'string' ? selection : selection?.id || 'original', sources,
     ...(selection?.hash ? { profile_hash: selection.hash } : {}) }
-  context.transport = { version: 1, adapter_version: '0.4.3', trace_id: traceId(), messages_digest: await messagesDigest(messages) }
+  context.transport = { version: 1, adapter_version: '0.4.4', trace_id: traceId(), messages_digest: await messagesDigest(messages) }
   const next = proxy
     ? { ...envelope, messages, custom_include_body: JSON.stringify({ ...include, ...(Object.hasOwn(include, 'messages') ? { messages } : {}), dsh_context: context }) }
     : { ...body, messages, dsh_session: session, dsh_context: context }

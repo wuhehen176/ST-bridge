@@ -39,6 +39,10 @@ ST-bridge 是供柏宝绘、玉子手机、数据库等酒馆插件调用的本�
 - 重写旧楼层、swipe、回退剧情时重建分支会话；
 - 等 Agent 回合结束，只把最终正文放进 `choices[0].message.content`。
 
+0.12.0 起支持客户端原生函数工具的往返：Agent 返回 `tool_calls`，由客户端执行，
+回传 `role: "tool"` 后继续同一个 Agent 回合。第一版支持范围和验收方式见
+[外部工具接入](EXTERNAL-TOOLS.md)。
+
 桥接不解析、不包裹、不增加代码围栏，所以柏宝绘的 `images/changes` JSON 会原样返回。
 
 ## 目录
@@ -52,6 +56,7 @@ ST-bridge 是供柏宝绘、玉子手机、数据库等酒馆插件调用的本�
 | `lib/turn.js` | 从 DSH 事件日志提取最终回答与 usage |
 | `lib/store.js` | `chat_id -> session_id` 映射和 `request_id` 记录的持久化 |
 | `lib/server.js` | OpenAI 兼容 HTTP/SSE 层 |
+| `lib/external-tools.js` | 客户端工具注册、异步等待回填、会话隔离与幂等 |
 | `lib/panel.js` | DSH 设置页 Host RPC、设置持久化、scope/规则/危险操作 |
 | `client.js` | DSH 设置页浏览器半边 |
 | `install.mjs` | 安装到当前 DSH profile |
@@ -386,13 +391,12 @@ dsh_session:
 
 ### 文本能力与工具模式
 
-首版只支持纯文本、JSON 字符串和填表文本指令。以下输入明确返回
-`400 unsupported_tool_mode`，不会静默删除或伪装成功：
-
-- 非空 `tools` / `functions`；
-- `role: "tool"` 或 `role: "function"` 的消息；
-- 消息里的非空 `tool_calls` / `function_call`；
-- 要求实际工具调用的 `tool_choice` / `function_call` 参数。
+纯文本、JSON 字符串和填表文本指令保留原有行为。桥接 0.12.0 与酒馆扩展 0.4.4
+增加客户端 `tools: [{type:"function",function:{...}}]`、`assistant.tool_calls` 和
+`role:"tool"` 的原生往返，参见 [外部工具接入](EXTERNAL-TOOLS.md)。
+需要 `stream:false`，`tool_choice` 省略或为 `auto`，`parallel_tool_calls` 省略或为
+`false`；旧 `functions/function_call`、强制工具选择、`strict:true`、并行和工具流式
+仍明确拒绝，不会静默降级成普通正文。
 
 `response_format: {"type":"json_schema",...}` 这种严格结构约束返回
 `400 unsupported_response_format`；`json_object` 可以按普通文本处理，但桥接
@@ -415,7 +419,8 @@ GET /v1/bridge/capabilities
   "scope_keys": ["client_id", "chat_id", "task_id"],
   "control_actions": ["generate", "sync_rules", "reset"],
   "input_modes": ["text", "json", "form_text"],
-  "tool_calls": false,
+  "tool_calls": true,
+  "external_tools": {"streaming":false,"execution":"caller","tool_choice":["auto"],"parallel_execution":false},
   "strict_json": false,
   "streaming": false
 }
@@ -431,7 +436,7 @@ GET /v1/bridge/capabilities
   返回 `410 session_gone`。
 - 未知/失效的 `session_id` 也返回 `410`；插件清除本地绑定后重新发送固定组。
 - 同一范围的请求串行处理；跨标签页并发也会排队。
-- `stream: true` 在本协议下被忽略，始终返回非流式 JSON。
+- 普通文本的 `stream: true` 在本协议下被忽略；外部工具模式要求 `stream:false`。
 - `target` 只作为元数据保存，不作为正文、画面内容或提示词注入。
 
 ## 普通 OpenAI 兼容模式（旧版/备用，默认关闭）
