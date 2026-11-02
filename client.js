@@ -328,17 +328,17 @@ window.__ModuleLoader__.load({
 
       const rotateAuthToken = () => run('生成桥接令牌', async () => {
         const value = await rpc('action', { action: 'rotate_auth_token' })
-        return `新令牌：${value.token}（只显示一次，请复制到手机扩展）`
+        return `新令牌：${value.token}（只显示一次，请复制到客户端）`
       })
 
       const startPairing = () => run('生成配对码', async () => {
         const value = await rpc('action', { action: 'pair_start' })
-        return `配对码：${value.code}；${Math.max(1, Math.round((value.expiresAt - Date.now()) / 60000))} 分钟内有效。手机扩展输入该码后，在面板点“允许”。`
+        return `配对码：${value.code}；${Math.max(1, Math.round((value.expiresAt - Date.now()) / 60000))} 分钟内有效。在客户端输入该码后，在面板点“允许”。`
       })
 
       const approvePairing = pairId => run('批准设备', async () => {
         await rpc('action', { action: 'pair_approve', pairId })
-        return '已批准。手机扩展会自动领取设备 token。'
+        return '已批准。客户端会自动领取设备 token。'
       })
 
       const rejectPairing = pairId => run('拒绝设备', async () => {
@@ -481,8 +481,8 @@ window.__ModuleLoader__.load({
             ),
           ),
           h('div', { className: 'bbh-box' },
-            h('h4', null, '手机配对'),
-            h('p', { className: 'bbh-note' }, '生成一次性配对码；手机扩展提交后，在这里批准设备。设备 token 只保存哈希，撤销立即失效。'),
+            h('h4', null, '配对码'),
+            h('p', { className: 'bbh-note' }, '生成一次性配对码；客户端提交后，在这里批准设备。设备令牌只保存哈希，撤销后立即失效。'),
             h('div', { className: 'bbh-actions' },
               h('button', { type: 'button', className: 'bbh-btn', disabled: busy, onClick: () => void startPairing() }, '生成配对码'),
             ),
@@ -493,7 +493,7 @@ window.__ModuleLoader__.load({
               ? status.pairing.requests.map(request => h('div', { className: 'bbh-actions', key: request.pairId },
                 h('span', null, `${request.deviceName || '未命名设备'}  ${request.ip || ''}  ${new Date(request.createdAt).toLocaleTimeString()}`),
                 request.status === 'approved_pending_delivery'
-                  ? h('span', { className: 'bbh-note' }, '已批准，等待手机领取 token')
+                  ? h('span', { className: 'bbh-note' }, '已批准，等待客户端领取令牌')
                   : h('div', { className: 'bbh-actions' },
                     h('button', { type: 'button', className: 'bbh-btn', disabled: busy, onClick: () => void approvePairing(request.pairId) }, '允许'),
                     h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => void rejectPairing(request.pairId) }, '拒绝'),
@@ -609,7 +609,7 @@ window.__ModuleLoader__.load({
 
         status === null ? null : tab === 'endpoints' ? h('div', { className: 'bbh-card' },
           h('h3', { className: 'bbh-card-title' }, '插件专属接入地址'),
-          h('p', { className: 'bbh-note' }, '不同插件使用不同地址；手机扩展继续补充当前酒馆聊天ID。地址只标识来源，认证仍使用原有设备令牌。保存后生效，无需重启服务。'),
+          h('p', { className: 'bbh-note' }, '不同插件使用不同地址；扩展继续补充当前酒馆聊天 ID。地址只标识来源，认证仍使用原有设备令牌。保存后生效，无需重启服务。'),
           h(Field, { label: '复制地址时使用的电脑地址', hint: '手机请选择能访问的局域网地址，127.0.0.1只用于电脑本机。' },
             h('select', { className: 'bbh-select', value: endpointBase || status.network?.urls?.[0] || `http://127.0.0.1:${status.service.port}/v1`, onChange: e => setEndpointBase(e.target.value) },
               [...new Set([...(status.network?.urls ?? []), `http://127.0.0.1:${status.service.port}/v1`])].map(value => h('option', { key: value, value }, value)))),
