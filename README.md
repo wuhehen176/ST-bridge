@@ -842,3 +842,14 @@ scope 隔离、旧绑定兼容、工具模式拒绝、capabilities、410、reque
 串行、usage 透传；设置面板的设置校验、持久化、token 不回显、危险操作确认；
 以及旧模式的 messages 顺序、多 system、前缀 diff、增量/分支/回退、SSE、
 工具调用过滤。
+
+
+### 柏宝绘专属模式（可选）
+
+柏宝绘可使用插件级稳定 chat_id，并发送 session_mode: "dedicated" 和 source_chat_id。
+普通模式保持原样。专属模式的 sync_rules/reset 成功响应在验证原生 surface API 后返回 dedicated-v1 能力确认。
+每次生成前，桥接分别替换受保护的系统头和历史会话尾部，旧事件仍留在不可变日志中；新生成只投影本轮动态快照和当前有效固定规则。
+快照差量裁剪在该模式下停用。相同 request_id 继续幂等，来源聊天改变会触发请求冲突。
+会话标题稳定为「柏宝绘专属会话 · 输出格式」，不跟随正文变化。
+
+skill_id 是预留字段；当前版本不加载技能，非空值返回 skill_binding_unavailable。不要将外部工具续接与专属快照模式混用。

@@ -169,3 +169,18 @@ test('legacy sessions are untouched and unsupported native projection fails expl
   assert.throws(() => engine.replaceProtocolSystemSnapshot(runtime, { turn: 1, step: 1 }),
     error => error.code === 'system_snapshot_unavailable')
 })
+
+test('dedicated surface compacts the conversation tail separately from a protected system head',()=>{
+ const engine=engineWithPresets(),events=[{type:'system/message',data:{text:'OLD_RULES'}},{type:'user/message',data:{text:'OLD_TASK'}},{type:'assistant/message',data:{text:'OLD_RESULT'}}]
+ const original=structuredClone(events),nodes=[0,1,2]
+ const session={surface:{nodes},eventAt:seq=>events[seq],append(type,data,options){
+  const op=options.surfaceOp,start=nodes.indexOf(op.startSeq),end=nodes.indexOf(op.endSeq)
+  if(start===0 && events[nodes[0]].type==='system/message') assert.equal(end,0)
+  const seq=events.length;events.push({type,data});nodes.splice(start,end-start+1,seq)
+ }}
+ engine.handles.set('session-st-dedicated-unit',{agent:{session}})
+ engine.clearDedicatedHistory('session-st-dedicated-unit')
+ assert.deepEqual(events.slice(0,3),original)
+ assert.ok(nodes.every(seq=>seq>=3))
+ assert.throws(()=>engine.assertDedicatedSurface('missing'),error=>error.code==='dedicated_surface_unavailable')
+})

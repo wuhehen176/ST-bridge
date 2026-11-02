@@ -14,6 +14,20 @@ class MockAgent {
   constructor(sessionId) {
     this.session = { id: sessionId, snapshotEvents: () => this.events }
     this.events = []
+    const hidden = new Set()
+    Object.defineProperty(this.session, 'surface', { configurable:true, value: {
+      get nodes() { return agent.events.flatMap((event,index)=>!hidden.has(index) && ['system/message','user/message','assistant/message'].includes(event.type) ? [index] : []) },
+    } })
+    const agent = this
+    this.session.eventAt = index => this.events[index]
+    this.session.append = (type,data,options) => {
+      const current=this.session.surface.nodes,op=options.surfaceOp
+      const start=current.indexOf(op.startSeq),end=current.indexOf(op.endSeq)
+      assert.ok(start>=0 && end>=start)
+      if (start===0 && this.events[current[0]].type==='system/message') assert.equal(end,0)
+      for(const index of current.slice(start,end+1)) hidden.add(index)
+      this.events.push({type,data})
+    }
     this.turn = 0
     this.prompts = []
     this.failMode = null
@@ -119,10 +133,10 @@ function makeConfig(cwd) {
   }
 }
 
-async function start() {
+async function start(hostPatch = {}, configPatch = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'bbh-session-'))
-  const host = makeHost()
-  const cfg = makeConfig(dir)
+  const host = Object.assign(makeHost(), hostPatch)
+  const cfg = { ...makeConfig(dir), ...configPatch }
   const store = new BridgeStore(join(dir, 'state.json'))
   const engine = new BridgeEngine(host, cfg, store, () => {})
   const pairing = new PairingService({ file: join(dir, 'devices.json') })
@@ -1343,5 +1357,90 @@ test('pairing endpoints deliver a device token that can chat but cannot manage',
     })
     assert.equal(status.status, 403)
     assert.equal((await status.json()).error.code, 'device_forbidden')
+  } finally { await app.close() }
+})
+
+test('dedicated handshake, cross-chat reuse and native task surfaces keep histories isolated',async()=>{
+ const app=await start()
+ try {
+  const session={protocol_version:1,chat_id:'baibai-dedicated:test',request_id:'dedicated-sync',action:'sync_rules',session_mode:'dedicated',fixed_message_count:1,fixed_message_types:['spec']}
+  const synced=await postDsh(app.base,{model:'dsh-default',messages:[{role:'system',content:'KEEP_RULES'}],dsh_session:session})
+  assert.equal(synced.response.status,200,synced.text)
+  assert.deepEqual(synced.json.dsh_session.capabilities,['dedicated-v1'])
+  const id=synced.json.dsh_session.session_id,agent=app.sessions.get(id)
+  assert.equal(agent.prompts.length,0)
+  const anotherTab=await postDsh(app.base,{model:'dsh-default',messages:[{role:'system',content:'KEEP_RULES'}],dsh_session:{...session,request_id:'dedicated-sync-tab2'}})
+  assert.equal(anotherTab.response.status,200,anotherTab.text);assert.equal(anotherTab.json.dsh_session.session_id,id)
+  const generate=(request,source,body)=>postDsh(app.base,{model:'dsh-default',messages:[{role:'system',content:'CURRENT_WORLD_'+source},{role:'user',content:body}],dsh_session:{...session,session_id:id,request_id:request,action:'generate',fixed_message_count:0,fixed_message_types:[],source_chat_id:source}})
+  const a=await generate('dedicated-a','chat-a','STORY_A')
+  assert.equal(a.response.status,200,a.text)
+  const oldEvents=structuredClone(agent.events)
+  const b=await generate('dedicated-b','chat-b','STORY_B')
+  assert.equal(b.response.status,200,b.text)
+  assert.equal(b.json.dsh_session.session_id,id)
+  assert.deepEqual(agent.events.slice(0,oldEvents.length),oldEvents)
+  assert.ok(agent.events.some(e=>e.data?.id==='dedicated-a'))
+  assert.ok(!agent.session.surface.nodes.some(i=>agent.events[i].data?.id==='dedicated-a'))
+  assert.ok(agent.session.surface.nodes.some(i=>agent.events[i].data?.id==='dedicated-b'))
+  assert.equal(app.engine.runtimeFor(id).fixedRules[0].text,'KEEP_RULES')
+  const repeated=await generate('dedicated-b','chat-b','STORY_B')
+  assert.equal(repeated.response.status,200);assert.equal(agent.prompts.length,2)
+  const conflicting=await generate('dedicated-b','chat-a','STORY_B')
+  assert.equal(conflicting.response.status,409)
+ } finally {await app.close()}
+})
+
+test('dedicated mode refuses unavailable native isolation and unbound Skill requests',async()=>{
+ const app=await start()
+ try {
+  const create=app.host.agents.create.bind(app.host.agents)
+  app.host.agents.create=async options=>{const result=await create(options);delete result.agent.session.surface;return result}
+  const input={model:'dsh-default',messages:[{role:'system',content:'RULES'}],dsh_session:{protocol_version:1,chat_id:'dedicated-unsupported',request_id:'sync',action:'sync_rules',session_mode:'dedicated',fixed_message_count:1,fixed_message_types:['spec']}}
+  const unavailable=await postDsh(app.base,input)
+  assert.equal(unavailable.response.status,502,unavailable.text)
+  assert.equal(unavailable.json.error.code,'dedicated_surface_unavailable')
+  const skill=await postDsh(app.base,{...input,dsh_session:{...input.dsh_session,request_id:'skill',skill_id:'future-user-skill'}})
+  assert.equal(skill.response.status,409);assert.equal(skill.json.error.code,'skill_binding_mismatch')
+  assert.ok([...app.sessions.values()].every(agent=>agent.prompts.length===0))
+ } finally {await app.close()}
+})
+
+test('bound skill is loaded, echoed, and content changes require a reset', async () => {
+  let content = 'SKILL_VERSION_A'
+  const skillRegistry = {
+    get: async name => ({ name, description: 'test', provider: 'filesystem', invocation: { userInvocable: true, modelInvocable: true }, content }),
+  }
+  const app = await start({ skills: skillRegistry }, {
+    clientEndpoints: [{ id: 'yuzi-phone', label: '玉子', taskId: 'phone', skillId: 'tavern-lite', enabled: true }],
+  })
+  try {
+    const dsh = requestId => ({ protocol_version: 1, client_id: 'yuzi-phone', chat_id: 'skill-chat', request_id: requestId, fixed_message_count: 0, fixed_message_types: [] })
+    const body = requestId => ({ model: 'dsh-default', messages: [{ role: 'user', content: 'skill test' }], dsh_session: dsh(requestId) })
+    const first = await postDsh(app.base, body('skill-1'))
+    assert.equal(first.response.status, 200, first.text)
+    assert.equal(first.json.dsh_session.skill_id, 'tavern-lite')
+    assert.equal(first.json.dsh_session.skill_hash.length, 64)
+
+    content = 'SKILL_VERSION_B'
+    const changed = await postDsh(app.base, body('skill-2'))
+    assert.equal(changed.response.status, 409)
+    assert.equal(changed.json.error.code, 'skill_changed_requires_reset')
+
+    const mismatch = await postDsh(app.base, { ...body('skill-3'), dsh_session: { ...dsh('skill-3'), skill_id: 'other-skill' } })
+    assert.equal(mismatch.response.status, 409)
+    assert.equal(mismatch.json.error.code, 'skill_binding_mismatch')
+
+    const reset = await postDsh(app.base, { model: 'dsh-default', messages: [], dsh_session: { ...dsh('skill-reset'), action: 'reset' } })
+    assert.equal(reset.response.status, 200, reset.text)
+    const afterReset = await postDsh(app.base, body('skill-4'))
+    assert.equal(afterReset.response.status, 200, afterReset.text)
+    assert.equal(afterReset.json.dsh_session.skill_id, 'tavern-lite')
+
+    app.engine.runtimes.set('session-st-skill-injected', {
+      sessionId: 'session-st-skill-injected', fixedRules: [], dynamicSystem: [], params: {},
+      protocol: true, skillText: '<skill_content name="tavern-lite">TEST_SKILL</skill_content>', skillHash: 'hash',
+    })
+    const assembled = app.engine.augmentProtocolAssembly({ sections: [] }, 'session-st-skill-injected')
+    assert.ok(assembled.sections.some(section => section.name === 'st-bridge:skill' && section.text.includes('TEST_SKILL')))
   } finally { await app.close() }
 })

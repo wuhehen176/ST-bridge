@@ -647,3 +647,44 @@ HTTP 接口使用与桥接相同的认证及 Origin 检查：
 `sync_rules`（重新发送固定规范）和 `reset`（重建会话）现在同样使用已保存的配对设备令牌。直连请求替换 Authorization，酒馆代理请求通过自定义请求头传递；两者保留原会话标识、请求标识、操作类型与 messages，不执行生成专用的聊天 ID 改写、材料过滤、规则档位替换或正文清洗。未配对时继续使用调用方凭据，不为其他服务注入令牌。
 
 扩展配对入口统一命名为“输入配对码”，电脑浏览器与手机均可使用。更新并刷新酒馆即可生效，无需重启 DSH；失效或未批准的设备令牌仍需重新配对。
+
+## 插件专属 Skill（0.13.0）
+
+在电脑「插件接入」中为每个条目填写可选 Skill：
+
+```text
+插件ID：yuzi-phone
+专属 Skill：tavern-lite
+```
+
+桥接按最终 `client_id` 查找绑定，因此：
+
+- `/clients/yuzi-phone/v1` 生效；
+- 普通 `/v1` + `dsh_session.client_id=baibai-image` 也会读取 `baibai-image` 的绑定。
+
+请求中的 `dsh_session.skill_id` 只能与管理员绑定核对，不能用来选择其他 Skill。
+
+加载规则：
+
+- 使用 DSH Skill 注册表和当前 `cwd`/scope 查询；
+- 仅接受 `userInvocable` 的 Skill；
+- 只注入自包含正文，不自动读取附属资源、脚本或工具；
+- UTF-8 正文上限 64 KiB，查询超时 5 秒；
+- 使用系统提示快照中的 `st-bridge:skill` 受管段。
+
+版本：
+
+- 会话记录保存 `skillId/skillHash/skillProvider/skillText`；
+- 绑定变化或同名 Skill 正文变化返回 `409 skill_changed_requires_reset`；
+- 重置会话后重新生成；
+- 同一 `request_id` 重试沿用第一次请求的请求哈希，不重新执行新版。
+
+错误：
+
+```text
+400 skill_not_found / skill_not_invocable / skill_too_large
+409 skill_binding_mismatch / skill_changed_requires_reset
+503 skill_timeout / skill_registry_unavailable / skill_load_failed
+```
+
+当前限制：附属资源和脚本不会自动加载；需要这些能力的 Skill 暂不完整可用。
