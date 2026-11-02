@@ -28,9 +28,10 @@ window.__ModuleLoader__.load({
 .bbh-card-title { margin:0; font-size:14px; font-weight:600; }
 .bbh-note { margin:0; font-size:12px; opacity:.58; }
 .bbh-grid2 { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
-.bbh-field { display:grid; gap:4px; min-width:0; }
+.bbh-field { display:grid; gap:4px; min-width:0; align-content:start; }
 .bbh-field > span { font-size:12px; opacity:.7; }
-.bbh-input, .bbh-textarea, .bbh-select { width:100%; font:inherit; color:inherit; background:var(--bbh-fill); border:1px solid var(--bbh-line); border-radius:8px; padding:7px 9px; outline:none; }
+.bbh-field > small { line-height:1.35; }
+.bbh-input, .bbh-textarea, .bbh-select { width:100%; min-height:34px; box-sizing:border-box; font:inherit; color:inherit; background:var(--bbh-fill); border:1px solid var(--bbh-line); border-radius:8px; padding:7px 9px; outline:none; }
 .bbh-input:focus, .bbh-textarea:focus, .bbh-select:focus { border-color:var(--bbh-accent); }
 .bbh-textarea { min-height:80px; resize:vertical; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; }
 .bbh-check { display:flex; align-items:flex-start; gap:8px; font-size:13px; cursor:pointer; }
