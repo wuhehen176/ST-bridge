@@ -848,8 +848,10 @@ scope 隔离、旧绑定兼容、工具模式拒绝、capabilities、410、reque
 
 柏宝绘可使用插件级稳定 chat_id，并发送 session_mode: "dedicated" 和 source_chat_id。
 普通模式保持原样。专属模式的 sync_rules/reset 成功响应在验证原生 surface API 后返回 dedicated-v1 能力确认。
-每次生成前，桥接分别替换受保护的系统头和历史会话尾部，旧事件仍留在不可变日志中；新生成只投影本轮动态快照和当前有效固定规则。
+每次生成前，桥接分别替换受保护的系统头和历史会话尾部，旧事件仍留在不可变日志中；新生成使用本轮动态快照、当前有效固定规则及已确认的会话版式图册。
 快照差量裁剪在该模式下停用。相同 request_id 继续幂等，来源聊天改变会触发请求冲突。
 会话标题稳定为「柏宝绘专属会话 · 输出格式」，不跟随正文变化。
+
+图片目录可通过 `dsh_session.layout_atlas = {"hash":"<64位小写SHA-256版本标识>","message_indices":[...]}` 绑定为会话前缀。首轮索引指向本请求中携图的动态 user 消息，桥接独立保存为原生图册节点；后续只发送相同 hash 和空索引数组，不再上传图册。冷却仅通过本轮文字白名单更新，不改变完整版式图。图册内容或版式几何变化时传新版本及完整图片，桥接替换旧前缀；重建、失效或压缩导致图册不可见时返回 `410 layout_atlas_required`，客户端须重新发送。图册只在当前 client/chat/task/session 中复用，不跨会话借用。能力接口通过 `layout_atlas.mode: "session-prefix-v1"` 声明支持，成功响应回显 `dsh_session.layout_atlas_hash`。
 
 管理员可在 clientEndpoints[].skillId 绑定本地 Skill；请求中的 dsh_session.skill_id 仅作绑定校验，响应回显实际生效的名称与内容哈希。Skill 须安装在该预设可读取的目录（如 ~/.dsh/skills），绑定或正文变化后须重置会话。当前仅注入 SKILL.md 正文，不自动加载 references 或脚本。不要将外部工具续接与专属快照模式混用。

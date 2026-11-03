@@ -16,6 +16,27 @@ const messages = [{ role: 'user', content: 'Synthetic test only.' }]
 const yuzi = { chat_completion_source: 'openai', reverse_proxy: 'http://192.168.3.47:43121/clients/yuzi-phone/v1', proxy_password: 'old-test-key', model: 'dsh-default', messages }
 const database = { chat_completion_source: 'custom', custom_url: 'http://192.168.3.47:43121/clients/shujuku/v1', model: 'dsh-default', messages }
 
+test('dedicated generation preserves plugin scope on generic and routed endpoints, direct and proxied', async () => {
+  const session = { protocol_version: 1, session_mode: 'dedicated', client_id: 'yuzi-phone',
+    chat_id: 'plugin-dedicated:stable', task_id: 'manga', session_id: 'synced-session',
+    request_id: 'same-request', action: 'generate', fixed_message_count: 0,
+    fixed_message_types: [], source_chat_id: 'source-chat', skill_id: 'bound-skill' }
+  for (const routed of [false, true]) for (const proxied of [false, true]) for (const chatId of ['chat-one', 'chat-two']) {
+    const endpoint = routed ? 'http://192.168.3.47:43121/clients/yuzi-phone/v1' : base
+    const body = proxied
+      ? { chat_completion_source: 'custom', custom_url: endpoint, messages, custom_include_body: JSON.stringify({ dsh_session: session }) }
+      : { messages, dsh_session: session }
+    const before = JSON.stringify(body)
+    const output = await adaptBody({ ...options, url: proxied ? proxy : endpoint + '/chat/completions', body, chatId,
+      autoInject: { ...options.autoInject, overrideChatId: true, clients: ['yuzi-phone'] } })
+    const adapted = proxied ? JSON.parse(output.body.custom_include_body).dsh_session : output.body.dsh_session
+    assert.deepEqual(adapted, session)
+    assert.equal(JSON.stringify(body), before)
+  }
+  await assert.rejects(adaptBody({ ...options, body: { ...yuzi,
+    dsh_session: { ...session, chat_id: '' } } }), /专属会话必须/)
+})
+
 test('endpoint registry validates unique stable IDs, preserves an empty registry and excludes admin aliases', () => {
   assert.deepEqual(normalizeConfig({}).clientEndpoints, routes)
   assert.deepEqual(clientEndpoints([]), [])

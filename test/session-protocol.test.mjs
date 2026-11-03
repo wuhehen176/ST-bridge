@@ -23,6 +23,8 @@ class MockAgent {
     this.session.eventAt = index => this.events[index]
     this.session.append = (type,data,options) => {
       const current=this.session.surface.nodes,op=options.surfaceOp
+      if (type==='system/message') assert.ok(data.turn > 0, 'format v4 system/message turn must be positive')
+      if (op==='append') { this.events.push({type,data});return }
       const start=current.indexOf(op.startSeq),end=current.indexOf(op.endSeq)
       assert.ok(start>=0 && end>=start)
       if (start===0 && this.events[current[0]].type==='system/message') assert.equal(end,0)
@@ -1374,6 +1376,66 @@ test('pairing endpoints deliver a device token that can chat but cannot manage',
   } finally { await app.close() }
 })
 
+test('dedicated generation refuses missing fixed rules before creating or prompting an Agent', async () => {
+  const app = await start({}, { sessionOnStale: 'recreate' })
+  try {
+    const session = { protocol_version: 1, session_mode: 'dedicated', chat_id: 'dedicated-unsynced',
+      request_id: 'missing-rules', action: 'generate', fixed_message_count: 0, fixed_message_types: [] }
+    const body = { model: 'dsh-default', messages: [{ role: 'user', content: 'Synthetic target P1' }], dsh_session: session }
+    const missing = await postDsh(app.base, body)
+    assert.equal(missing.response.status, 409, missing.text)
+    assert.equal(missing.json.error.code, 'fixed_rules_required')
+    assert.equal(app.sessions.size, 0)
+    const stale = await postDsh(app.base, { ...body, dsh_session: { ...session,
+      request_id: 'stale-rules', session_id: 'another-scope-session' } })
+    assert.equal(stale.response.status, 409, stale.text)
+    assert.equal(stale.json.error.code, 'fixed_rules_required')
+    assert.equal(app.sessions.size, 0)
+    const synced = await postDsh(app.base, { model: 'dsh-default',
+      messages: [{ role: 'system', content: 'HOST_CONTRACT' }],
+      dsh_session: { ...session, request_id: 'sync-rules', action: 'sync_rules',
+        fixed_message_count: 1, fixed_message_types: ['contract'] } })
+    assert.equal(synced.response.status, 200, synced.text)
+    const generated = await postDsh(app.base, { ...body, dsh_session: { ...session,
+      request_id: 'after-sync', session_id: synced.json.dsh_session.session_id } })
+    assert.equal(generated.response.status, 200, generated.text)
+    assert.equal(app.engine.runtimeFor(generated.json.dsh_session.session_id).fixedRules[0].text, 'HOST_CONTRACT')
+  } finally { await app.close() }
+})
+
+test('adapter routes sync and generation to the same dedicated scope with automatic chat isolation enabled', async () => {
+  const app = await start({}, { clientEndpoints: [{ id: 'baibaohui', label: '柏宝绘', taskId: 'manga', enabled: true }] })
+  try {
+    const session = { protocol_version: 1, session_mode: 'dedicated', client_id: 'baibaohui',
+      chat_id: 'baibai-dedicated:regression', task_id: 'manga' }
+    const submit = async (dsh, messages, chatId) => {
+      const output = await adaptBody({ url: 'http://localhost:8000/api/backends/chat-completions/generate',
+        pageOrigin: 'http://localhost:8000', base: app.base + '/v1', deviceToken: 'test-device',
+        resolveEndpoint: async id => ({ id, taskId: 'manga', enabled: true }),
+        autoInject: { enabled: true, prefix: 'stb-', overrideChatId: true, clients: ['baibaohui'] }, chatId,
+        body: { chat_completion_source: 'custom', custom_url: app.base + '/clients/baibaohui/v1',
+          model: 'dsh-default', messages, custom_include_body: JSON.stringify({ dsh_session: { ...session, ...dsh } }) } })
+      const body = { ...output.body, ...JSON.parse(output.body.custom_include_body) }
+      assert.equal(body.dsh_session.chat_id, session.chat_id)
+      return postDsh(app.base, body)
+    }
+    const synced = await submit({ action: 'sync_rules', request_id: 'adapter-sync',
+      fixed_message_count: 1, fixed_message_types: ['contract'] }, [{ role: 'system', content: 'HOST_CONTRACT_position_tag' }], 'chat-one')
+    assert.equal(synced.response.status, 200, synced.text)
+    const id = synced.json.dsh_session.session_id
+    for (const source of ['chat-one', 'chat-two']) {
+      const generated = await submit({ action: 'generate', request_id: 'adapter-' + source,
+        session_id: id, source_chat_id: source, fixed_message_count: 0, fixed_message_types: [] },
+      [{ role: 'user', content: 'Synthetic target P1' }], source)
+      assert.equal(generated.response.status, 200, generated.text)
+      assert.equal(generated.json.dsh_session.session_id, id)
+      assert.equal(app.engine.runtimeFor(id).fixedRules[0].text, 'HOST_CONTRACT_position_tag')
+    }
+    assert.equal(app.sessions.size, 1)
+    assert.equal(app.sessions.get(id).prompts.length, 2)
+  } finally { await app.close() }
+})
+
 test('dedicated handshake, cross-chat reuse and native task surfaces keep histories isolated',async()=>{
  const app=await start()
  try {
@@ -1495,6 +1557,63 @@ test('bound skill lookup releases preset leases on failure and fails closed with
     assert.equal(unsupported.response.status, 503)
     assert.equal(unsupported.json.error.code, 'skill_scope_unavailable')
     assert.equal(app.sessions.size, 0)
+  } finally { await app.close() }
+})
+
+test('dedicated atlas prefix survives history clearing and restart, updates revisions and rejects a lost prefix', async () => {
+  let admitted = 0
+  const app = await start({ attachments: { admitPromptContent: async content => { admitted++;return content } } })
+  const png = 'data:image/png;base64,AAAA'
+  const base = { protocol_version: 1, session_mode: 'dedicated', chat_id: 'atlas-retention', action: 'generate',
+    fixed_message_count: 0, fixed_message_types: [] }
+  const atlasMessage = text => ({ role: 'user', content: [{ type: 'text', text }, { type: 'image_url', image_url: { url: png } }] })
+  const generate = (request, hash, messages, indices = []) => postDsh(app.base, { model: 'dsh-default', messages,
+    dsh_session: { ...base, request_id: request, layout_atlas: { hash, message_indices: indices } } })
+  try {
+    const initial = await postDsh(app.base, { model: 'dsh-default', messages: [{ role: 'system', content: 'RULES' },
+      atlasMessage('FULL_ATLAS_A'), { role: 'system', content: 'WHITELIST_A' }, { role: 'user', content: 'STORY_A' }],
+    dsh_session: { ...base, request_id: 'atlas-first', fixed_message_count: 1, fixed_message_types: ['contract'],
+      layout_atlas: { hash: 'a'.repeat(64), message_indices: [1] } } })
+    assert.equal(initial.response.status, 200, initial.text)
+    assert.equal(initial.json.dsh_session.layout_atlas_hash, 'a'.repeat(64))
+    const id = initial.json.dsh_session.session_id, agent = app.sessions.get(id)
+    const active = () => agent.session.surface.nodes.map(seq => agent.session.eventAt(seq))
+    const prefix = active().find(event => event.type === 'user/message' && event.data.id.startsWith('layout-atlas:'))
+    assert.ok(prefix)
+    assert.equal(admitted, 1)
+    assert.ok(agent.contents[0].every(block => block.type === 'text'))
+    const second = await generate('atlas-second', 'a'.repeat(64), [{ role: 'system', content: 'WHITELIST_B' }, { role: 'user', content: 'STORY_B' }])
+    assert.equal(second.response.status, 200, second.text)
+    assert.equal(admitted, 1)
+    assert.ok(active().includes(prefix))
+    assert.ok(!active().some(event => event.data.id === 'atlas-first'))
+    assert.equal(app.engine.runtimeFor(id).fixedRules[0].text, 'RULES')
+    app.engine.store = new BridgeStore(app.engine.store.file)
+    app.engine.runtimes.clear()
+    const resumed = await generate('atlas-resume', 'a'.repeat(64), [{ role: 'user', content: 'STORY_C' }])
+    assert.equal(resumed.response.status, 200, resumed.text)
+    assert.ok(active().includes(prefix))
+    assert.equal(admitted, 1)
+    const updated = await generate('atlas-update', 'b'.repeat(64), [atlasMessage('FULL_ATLAS_B'), { role: 'user', content: 'STORY_D' }], [0])
+    assert.equal(updated.response.status, 200, updated.text)
+    assert.equal(admitted, 2)
+    assert.ok(!active().includes(prefix))
+    const newer = active().find(event => event.type === 'user/message' && event.data.id.startsWith('layout-atlas:'))
+    assert.ok(newer)
+    const seq = agent.session.surface.nodes.find(seq => agent.session.eventAt(seq) === newer)
+    agent.session.append('system/message', { turn: 4, step: 0, message: { id: 'compaction', role: 'system', content: [], source: { kind: 'system-prompt' } } },
+      { surfaceOp: { op: 'replace', startSeq: seq, endSeq: seq }, sourceEventSeqs: [seq] })
+    const count = agent.prompts.length
+    const missing = await generate('atlas-missing', 'b'.repeat(64), [{ role: 'user', content: 'STORY_E' }])
+    assert.equal(missing.response.status, 410, missing.text)
+    assert.equal(missing.json.error.code, 'layout_atlas_required')
+    assert.equal(agent.prompts.length, count)
+    const chat = app.engine.store.listChats().find(chat => chat.sessionId === id)
+    const done = app.engine.store.getRequest(chat.scopeKey, 'atlas-second')
+    app.engine.store.putRequest(chat.scopeKey, 'atlas-second', { ...done, status: 'pending' })
+    const repeated = await generate('atlas-second', 'a'.repeat(64), [{ role: 'system', content: 'WHITELIST_B' }, { role: 'user', content: 'STORY_B' }])
+    assert.equal(repeated.response.status, 200, repeated.text)
+    assert.equal(repeated.json.dsh_session.layout_atlas_hash, 'a'.repeat(64))
   } finally { await app.close() }
 })
 
