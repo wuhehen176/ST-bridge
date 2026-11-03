@@ -710,7 +710,7 @@ HTTP 接口使用与桥接相同的认证及 Origin 检查：
 - 只接受 `data:` URL，不支持远程 `http(s)`；
 - MIME：png/jpeg/webp/gif；
 - 只允许 user 消息携带图片；
-- 每条消息最多 4 张；
+- 每条消息最多 20 张；
 - 单图最大 10 MiB；
 - 单请求图片总量最大 20 MiB；
 - 图片 hash 进入消息 hash 和 request_id 幂等判断。
