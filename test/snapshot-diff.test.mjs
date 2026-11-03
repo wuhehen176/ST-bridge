@@ -125,6 +125,32 @@ test('keep token pins blocks against leading/trailing trim', () => {
   assert.equal(lastResult.diagnostic.trimmed_blocks, 1)
 })
 
+test('paired keep tokens pin every block in the range', () => {
+  const K = '<<<STB-KEEP>>>'
+  const C = '<<<STB-/KEEP>>>'
+  const previous = [msg('system', 'FIXED_A\n\nOLD_ONE\n\nOLD_TWO\n\nFIXED_B')]
+  const snapshot = { mode: 'auto', marker: '', turn: 1, messages: snapshotOf(previous, { mode: 'auto' }) }
+  const current = [msg('system', `FIXED_A\n\n${K}\nNEW_ONE\n\nNEW_TWO\n\n${C}\nFIXED_B`)]
+  const result = diffAgainstSnapshot(current, snapshot, { mode: 'auto' })
+  assert.equal(result.messages[0].text, 'NEW_ONE\n\nNEW_TWO\n\nFIXED_B')
+  assert.equal(result.diagnostic.trimmed_blocks, 1)
+
+  const markerPrevious = [msg('system', wrap('FIXED_A', 'OLD_ONE', 'OLD_TWO', 'FIXED_B'))]
+  const markerSnapshot = { marker: MARKER, turn: 1, messages: snapshotOf(markerPrevious, MARKER) }
+  const markerCurrent = [msg('system', wrap('FIXED_A', `${K}\nNEW_ONE`, 'NEW_TWO', `${C}\nFIXED_B`))]
+  const markerResult = diffAgainstSnapshot(markerCurrent, markerSnapshot, MARKER)
+  assert.equal(markerResult.messages[0].text, 'NEW_ONE\n\nNEW_TWO\n\nFIXED_B')
+  assert.equal(markerResult.diagnostic.trimmed_blocks, 1)
+})
+
+test('keep range tokens are stripped even without a snapshot marker', () => {
+  assert.equal(stripSnapshotMarkers('<<<STB-KEEP>>>\nfixed\n<<<STB-/KEEP>>>', ''), 'fixed')
+  assert.equal(
+    stripSnapshotMarkers('A\n<<<STB-KEEP>>>\nfixed\n<<<STB-/KEEP>>>\nB', ''),
+    'A\nfixed\nB',
+  )
+})
+
 test('keep token works inside explicit marker blocks', () => {
   const K = '<<<STB-KEEP>>>'
   const previous = [msg('system', wrap('FIXED_A', 'OLD_MIDDLE', 'FIXED_B'))]
