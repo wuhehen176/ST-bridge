@@ -104,6 +104,45 @@ test('auto mode splits paragraphs and trims stable head/tail blocks', () => {
   assert.equal(result.messages[0].text, 'NEW_MIDDLE')
 })
 
+test('keep token pins blocks against leading/trailing trim', () => {
+  const K = '<<<STB-KEEP>>>'
+  const previous = [msg('system', 'FIXED_A\n\nOLD_MIDDLE\n\nFIXED_B')]
+  const snapshot = { mode: 'auto', marker: '', turn: 1, messages: snapshotOf(previous, { mode: 'auto' }) }
+
+  const middle = [msg('system', `FIXED_A\n\n${K}\nOLD_MIDDLE\n\nNEW_TAIL`)]
+  const middleResult = diffAgainstSnapshot(middle, snapshot, { mode: 'auto' })
+  assert.equal(middleResult.messages[0].text, 'OLD_MIDDLE\n\nNEW_TAIL')
+  assert.equal(middleResult.diagnostic.trimmed_blocks, 1)
+
+  const first = [msg('system', `${K}\nFIXED_A\n\nNEW_MIDDLE\n\nFIXED_B`)]
+  const firstResult = diffAgainstSnapshot(first, snapshot, { mode: 'auto' })
+  assert.equal(firstResult.messages[0].text, 'FIXED_A\n\nNEW_MIDDLE')
+  assert.equal(firstResult.diagnostic.trimmed_blocks, 1)
+
+  const last = [msg('system', `FIXED_A\n\nNEW_MIDDLE\n\n${K}\nFIXED_B`)]
+  const lastResult = diffAgainstSnapshot(last, snapshot, { mode: 'auto' })
+  assert.equal(lastResult.messages[0].text, 'NEW_MIDDLE\n\nFIXED_B')
+  assert.equal(lastResult.diagnostic.trimmed_blocks, 1)
+})
+
+test('keep token works inside explicit marker blocks', () => {
+  const K = '<<<STB-KEEP>>>'
+  const previous = [msg('system', wrap('FIXED_A', 'OLD_MIDDLE', 'FIXED_B'))]
+  const snapshot = { marker: MARKER, turn: 1, messages: snapshotOf(previous, MARKER) }
+  const current = [msg('system', wrap('FIXED_A', `${K}\nOLD_MIDDLE`, 'NEW_TAIL'))]
+  const result = diffAgainstSnapshot(current, snapshot, MARKER)
+  assert.equal(result.messages[0].text, 'OLD_MIDDLE\n\nNEW_TAIL')
+  assert.equal(result.diagnostic.trimmed_blocks, 1)
+})
+
+test('keep token is transport-only and works without a snapshot marker', () => {
+  const K = '<<<STB-KEEP>>>'
+  const input = [msg('system', `${K}\nkeep this\n\nplain`)]
+  const out = stripMarkersInMessages(input, '')
+  assert.equal(out[0].text, 'keep this\n\nplain')
+  assert.equal(stripSnapshotMarkers(`${K}\nA`, ''), 'A')
+})
+
 test('auto mode splits an oversized paragraph into line groups', () => {
   const long = Array.from({ length: 40 }, (_, index) => `line-${index} ${'x'.repeat(120)}`).join('\n')
   const blocks = splitAutoBlocks(long, { maxBlockChars: 500 })

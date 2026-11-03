@@ -555,7 +555,7 @@ window.__ModuleLoader__.load({
                 onClick: () => { if (form.snapshotMarker) void navigator.clipboard?.writeText(`<<<STB-${form.snapshotMarker}:B>>> ... <<<STB-${form.snapshotMarker}:E>>>`) },
               }, '复制标记'),
             ),
-            h('p', { className: 'bbh-note' }, '模板写法：每段用 B/E 包起来。标记只在传输层存在，进模型前剥掉。'),
+            h('p', { className: 'bbh-note' }, '模板写法：每段用 B/E 包起来。标记只在传输层存在，进模型前剥掉。块首写 <<<STB-KEEP>>> 可固定该块，不参与裁剪。'),
             h(Field, { label: '适用的 client_id', hint: '逗号分隔；留空表示所有客户端。' },
               h('input', { className: 'bbh-input', value: form.snapshotClientsText, onChange: e => setField('snapshotClientsText', e.target.value) })),
             h(Field, { label: '分歧处理', hint: 'full = 整段发送；branch = 新分支。' },

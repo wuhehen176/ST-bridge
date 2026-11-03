@@ -1,6 +1,6 @@
 {
   "name": "ST-bridge",
-  "version": "0.15.0",
+  "version": "0.14.4",
   "private": true,
   "type": "module",
   "description": "DSH persistent Agent session bridge for Tavern plugins",
