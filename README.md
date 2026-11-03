@@ -79,8 +79,8 @@ node install.mjs --cwd D:\AIGC\MOSS --port 43121
 
 1. 在 `<profile>/node_modules/ST-bridge` 创建指向本目录的链接；
 2. 备份并修改 `<profile>/cordis.patch.yml`，追加一个受管配置块；
-3. 注册一个只含文本系统提示词的 Agent 预设 `st-bridge`，不加载
-   DSH 工具、技能、酒馆人格或运行时上下文。
+3. 注册 Agent 预设 `st-bridge`，提供文本系统提示词与本地 Skill 注册表，
+   由桥接只注入管理员绑定的 Skill；不加载 DSH 工具、酒馆人格或运行时上下文。
 
 安装后必须 **完全退出 DSH Desktop**（托盘退出，不是只关窗口），再重新启动。
 然后验证：
@@ -852,4 +852,4 @@ scope 隔离、旧绑定兼容、工具模式拒绝、capabilities、410、reque
 快照差量裁剪在该模式下停用。相同 request_id 继续幂等，来源聊天改变会触发请求冲突。
 会话标题稳定为「柏宝绘专属会话 · 输出格式」，不跟随正文变化。
 
-skill_id 是预留字段；当前版本不加载技能，非空值返回 skill_binding_unavailable。不要将外部工具续接与专属快照模式混用。
+管理员可在 clientEndpoints[].skillId 绑定本地 Skill；请求中的 dsh_session.skill_id 仅作绑定校验，响应回显实际生效的名称与内容哈希。Skill 须安装在该预设可读取的目录（如 ~/.dsh/skills），绑定或正文变化后须重置会话。当前仅注入 SKILL.md 正文，不自动加载 references 或脚本。不要将外部工具续接与专属快照模式混用。

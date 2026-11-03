@@ -10,9 +10,11 @@
       config:
         id: st-bridge
         name: ST-bridge
-        description: 酒馆多插件持久会话专用预设：仅文本，不加载 DSH 工具、技能、酒馆人格或运行时上下文
+        description: 酒馆多插件持久会话专用预设：文本与管理员绑定 Skill，不加载 DSH 工具、酒馆人格或运行时上下文
         order: 40
         plugins:
+          - id: skill-filesystem
+            name: '@deepseek-ai/dsh-skill-filesystem'
           - id: persona
             name: '@deepseek-ai/dsh-persona'
             config:

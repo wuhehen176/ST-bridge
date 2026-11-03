@@ -9,6 +9,7 @@ import { BridgeStore } from '../lib/store.js'
 import { PairingService } from '../lib/pairing.js'
 import { messageHash } from '../lib/context.js'
 import { adaptBody } from '../tavern-extension/core.js'
+import { inject } from '../index.js'
 
 class MockAgent {
   constructor(sessionId) {
@@ -97,7 +98,10 @@ function makeHost() {
     },
     services: {
       agentDefaultModel: { currentSelection: () => ({ provider: 'mock', model: 'mock-model' }) },
-      agentPresets: { mount: async () => {} },
+      agentPresets: {
+        mount: async () => {},
+        acquireScope: async () => ({ key: {}, [Symbol.asyncDispose]: async () => {} }),
+      },
       sessionController: {
         inspect: async sessionId => {
           const agent = sessions.get(sessionId)
@@ -137,7 +141,15 @@ function makeConfig(cwd) {
 
 async function start(hostPatch = {}, configPatch = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'bbh-session-'))
-  const host = Object.assign(makeHost(), hostPatch)
+  // Cordis rejects undeclared service reads; plain object mocks hid this in production.
+  const host = new Proxy(Object.assign(makeHost(), hostPatch), {
+    get(target, key, receiver) {
+      if (['skills', 'attachments'].includes(key) && !inject.includes(key)) {
+        throw new Error(`cannot get property "${key}" without inject`)
+      }
+      return Reflect.get(target, key, receiver)
+    },
+  })
   const cfg = { ...makeConfig(dir), ...configPatch }
   const store = new BridgeStore(join(dir, 'state.json'))
   const engine = new BridgeEngine(host, cfg, store, () => {})
@@ -1409,12 +1421,26 @@ test('dedicated mode refuses unavailable native isolation and unbound Skill requ
 
 test('bound skill is loaded, echoed, and content changes require a reset', async () => {
   let content = 'SKILL_VERSION_A'
+  const presetScope = {}
+  let acquired = 0
+  let released = 0
   const skillRegistry = {
-    get: async name => ({ name, description: 'test', provider: 'filesystem', invocation: { userInvocable: true, modelInvocable: true }, content }),
+    get: async (name, options) => {
+      // The real registry caches scope identities in a WeakMap.
+      new WeakMap().set(options.scope, true)
+      assert.equal(options.scope, presetScope)
+      assert.ok(acquired > released)
+      return { name, description: 'test', provider: 'filesystem', invocation: { userInvocable: true, modelInvocable: true }, content }
+    },
   }
   const app = await start({ skills: skillRegistry }, {
     clientEndpoints: [{ id: 'yuzi-phone', label: '玉子', taskId: 'phone', skillId: 'tavern-lite', enabled: true }],
   })
+  app.host.services.agentPresets.acquireScope = async id => {
+    assert.equal(id, 'test-preset')
+    acquired++
+    return { key: presetScope, [Symbol.asyncDispose]: async () => { released++ } }
+  }
   try {
     const dsh = requestId => ({ protocol_version: 1, client_id: 'yuzi-phone', chat_id: 'skill-chat', request_id: requestId, fixed_message_count: 0, fixed_message_types: [] })
     const body = requestId => ({ model: 'dsh-default', messages: [{ role: 'user', content: 'skill test' }], dsh_session: dsh(requestId) })
@@ -1444,6 +1470,31 @@ test('bound skill is loaded, echoed, and content changes require a reset', async
     })
     const assembled = app.engine.augmentProtocolAssembly({ sections: [] }, 'session-st-skill-injected')
     assert.ok(assembled.sections.some(section => section.name === 'st-bridge:skill' && section.text.includes('TEST_SKILL')))
+    assert.equal(acquired, released)
+  } finally { await app.close() }
+})
+
+test('bound skill lookup releases preset leases on failure and fails closed without scope support', async () => {
+  const app = await start({ skills: { get: async () => { throw new Error('provider failed') } } }, {
+    clientEndpoints: [{ id: 'yuzi-phone', label: '玉子', taskId: 'phone', skillId: 'tavern-lite', enabled: true }],
+  })
+  let released = 0
+  app.host.services.agentPresets.acquireScope = async () => ({
+    key: {}, [Symbol.asyncDispose]: async () => { released++ },
+  })
+  const body = requestId => ({ model: 'dsh-default', messages: [{ role: 'system', content: 'RULES' }],
+    dsh_session: { protocol_version: 1, client_id: 'yuzi-phone', chat_id: 'skill-error', request_id: requestId,
+      action: 'sync_rules', fixed_message_count: 1, fixed_message_types: ['spec'] } })
+  try {
+    const failed = await postDsh(app.base, body('failed'))
+    assert.equal(failed.response.status, 503)
+    assert.equal(failed.json.error.code, 'skill_load_failed')
+    assert.equal(released, 1)
+    delete app.host.services.agentPresets.acquireScope
+    const unsupported = await postDsh(app.base, body('unsupported'))
+    assert.equal(unsupported.response.status, 503)
+    assert.equal(unsupported.json.error.code, 'skill_scope_unavailable')
+    assert.equal(app.sessions.size, 0)
   } finally { await app.close() }
 })
 

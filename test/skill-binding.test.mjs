@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { readFileSync } from 'node:fs'
 import { boundSkillFor, loadBoundSkill, renderSkillContent } from '../lib/skill-binding.js'
 import { clientEndpoints } from '../lib/client-endpoints.js'
 
@@ -10,6 +11,14 @@ const skill = {
   invocation: { userInvocable: true, modelInvocable: true },
   content: 'WRITE_ONLY_JSON',
 }
+
+test('all installation routes register a filesystem Skill provider without native Skill tools', () => {
+  for (const file of ['cordis.patch.yml', 'cordis.patch.snippet.yml', 'install.mjs']) {
+    const source = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8')
+    assert.match(source, /@deepseek-ai\/dsh-skill-filesystem/, file)
+    assert.doesNotMatch(source, /@deepseek-ai\/dsh-tool-(?:skill|pwsh|str-replace-editor)/, file)
+  }
+})
 
 test('client endpoints accept kebab-case skill bindings and reject invalid names', () => {
   const entries = clientEndpoints([
@@ -25,6 +34,7 @@ test('client endpoints accept kebab-case skill bindings and reject invalid names
 
 test('loadBoundSkill renders a canonical envelope and hashes it', async () => {
   const calls = []
+  const scope = {}
   const loaded = await loadBoundSkill({
     skills: {
       get: async (name, options) => {
@@ -32,10 +42,10 @@ test('loadBoundSkill renders a canonical envelope and hashes it', async () => {
         return skill
       },
     },
-  }, { skillId: 'tavern-lite', cwd: 'D:/work', scope: 'scope:test' })
+  }, { skillId: 'tavern-lite', cwd: 'D:/work', scope })
   assert.equal(calls[0].name, 'tavern-lite')
   assert.equal(calls[0].options.cwd, 'D:/work')
-  assert.equal(calls[0].options.scope, 'scope:test')
+  assert.equal(calls[0].options.scope, scope)
   assert.match(loaded.text, /<skill_content name="tavern-lite">/)
   assert.match(loaded.text, /WRITE_ONLY_JSON/)
   assert.equal(loaded.hash.length, 64)

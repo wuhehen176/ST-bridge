@@ -26,6 +26,8 @@ export const inject = [
   'agentPresets',
   'sessionController',
   'llm',
+  'skills',
+  'attachments',
   'connection',
   'webServer',
 ]
