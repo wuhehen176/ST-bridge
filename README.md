@@ -80,7 +80,10 @@ node install.mjs --cwd D:\AIGC\MOSS --port 43121
 1. 在 `<profile>/node_modules/ST-bridge` 创建指向本目录的链接；
 2. 备份并修改 `<profile>/cordis.patch.yml`，追加一个受管配置块；
 3. 注册 Agent 预设 `st-bridge`，提供文本系统提示词与本地 Skill 注册表，
-   由桥接只注入管理员绑定的 Skill；不加载 DSH 工具、酒馆人格或运行时上下文。
+   由桥接只注入管理员绑定的 Skill。工具跟随当前选择的 Agent 预设：
+   `st-bridge` 预设默认不加载 DSH 工具；选择 `standard` 等其他预设时，
+   桥接不再清空该预设的工具，执行权限仍由 DSH 工具策略决定。
+   酒馆人格与运行时上下文仍由桥接管理。
 
 安装后必须 **完全退出 DSH Desktop**（托盘退出，不是只关窗口），再重新启动。
 然后验证：
@@ -260,6 +263,8 @@ DSH 用 `fixed_message_count` / `fixed_message_types` 把 `messages` 切成
 | `session_id` | 首次没有；后续由桥接返回并携带 |
 | `request_id` | 单次操作 ID；网络重试必须复用，桥接做幂等 |
 | `action` | `generate` / `sync_rules` / `reset` |
+| `skill_id` | 可选；只能指定当前入口管理员绑定的 Skill 名称 |
+| `skill_enabled` | 可选布尔值；false 关闭本次 Skill，缺省跟随管理员绑定；新请求更新版本，重试冻结版本 |
 | `fixed_message_count` | `messages` 开头多少条属于固定组 |
 | `fixed_message_types` | 与固定组逐条对应：`prefix`、`spec`、`contract`、`check` |
 | `target` | 仅生成时携带的元数据；桥接只记录，不放进正文 |
@@ -854,4 +859,4 @@ scope 隔离、旧绑定兼容、工具模式拒绝、capabilities、410、reque
 
 图片目录可通过 `dsh_session.layout_atlas = {"hash":"<64位小写SHA-256版本标识>","message_indices":[...]}` 绑定为会话前缀。首轮索引指向本请求中携图的动态 user 消息，桥接独立保存为原生图册节点；后续只发送相同 hash 和空索引数组，不再上传图册。冷却仅通过本轮文字白名单更新，不改变完整版式图。图册内容或版式几何变化时传新版本及完整图片，桥接替换旧前缀；重建、失效或压缩导致图册不可见时返回 `410 layout_atlas_required`，客户端须重新发送。图册只在当前 client/chat/task/session 中复用，不跨会话借用。能力接口通过 `layout_atlas.mode: "session-prefix-v1"` 声明支持，成功响应回显 `dsh_session.layout_atlas_hash`。
 
-管理员可在 clientEndpoints[].skillId 绑定本地 Skill；请求中的 dsh_session.skill_id 仅作绑定校验，响应回显实际生效的名称与内容哈希。Skill 须安装在该预设可读取的目录（如 ~/.dsh/skills），绑定或正文变化后须重置会话。当前仅注入 SKILL.md 正文，不自动加载 references 或脚本。不要将外部工具续接与专属快照模式混用。
+管理员可在 clientEndpoints[].skillId 绑定本地 Skill；请求中的 dsh_session.skill_id 仅作绑定校验，响应回显实际生效的名称与内容哈希。Skill 须安装在该预设可读取的目录（如 ~/.dsh/skills）。0.15.0 起每个新请求读取最新正文并替换唯一的 `st-bridge:skill` 系统规则块，更新内容无需重置会话；同一 request_id 的重试使用首次接受的版本，不能借重试更换正文或 Skill。设置 `dsh_session.skill_enabled:false` 可关闭本次 Skill 注入；缺省继续跟随管理员绑定。当前仅注入 SKILL.md 正文，不自动加载 references 或脚本。不要将外部工具续接与专属快照模式混用。

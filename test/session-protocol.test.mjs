@@ -1481,7 +1481,7 @@ test('dedicated mode refuses unavailable native isolation and unbound Skill requ
  } finally {await app.close()}
 })
 
-test('bound skill is loaded, echoed, and content changes require a reset', async () => {
+test('bound Skill refreshes for a new request, freezes retries, and can be disabled without reset', async () => {
   let content = 'SKILL_VERSION_A'
   const presetScope = {}
   let acquired = 0
@@ -1513,8 +1513,45 @@ test('bound skill is loaded, echoed, and content changes require a reset', async
 
     content = 'SKILL_VERSION_B'
     const changed = await postDsh(app.base, body('skill-2'))
-    assert.equal(changed.response.status, 409)
-    assert.equal(changed.json.error.code, 'skill_changed_requires_reset')
+    assert.equal(changed.response.status, 200, changed.text)
+    assert.equal(changed.json.dsh_session.session_id, first.json.dsh_session.session_id)
+    assert.notEqual(changed.json.dsh_session.skill_hash, first.json.dsh_session.skill_hash)
+    const updated = app.engine.augmentProtocolAssembly({ sections: [] }, first.json.dsh_session.session_id)
+    const activeSkills = updated.sections.filter(section => section.name === 'st-bridge:skill')
+    assert.equal(activeSkills.length, 1)
+    assert.match(activeSkills[0].text, /SKILL_VERSION_B/)
+    assert.doesNotMatch(activeSkills[0].text, /SKILL_VERSION_A/)
+    const reads = acquired
+    const lookup = skillRegistry.get
+    skillRegistry.get = async () => { throw new Error('file temporarily unavailable') }
+    app.engine.store = new BridgeStore(app.engine.store.file) // Persisted retries also survive a fresh store instance.
+    const retry = await postDsh(app.base, body('skill-1'))
+    assert.equal(retry.response.status, 200, retry.text)
+    assert.equal(retry.json.dsh_session.skill_hash, first.json.dsh_session.skill_hash)
+    assert.equal(acquired, reads, 'cached retries must not read the current Skill file')
+    skillRegistry.get = lookup
+    const rewritten = await postDsh(app.base, { ...body('skill-1'), messages: [{ role: 'user', content: 'rewritten target' }] })
+    assert.equal(rewritten.response.status, 409)
+    assert.equal(rewritten.json.error.code, 'request_id_conflict')
+    const disabled = await postDsh(app.base, { ...body('skill-off'), dsh_session: { ...dsh('skill-off'), skill_enabled: false } })
+    assert.equal(disabled.response.status, 200, disabled.text)
+    assert.equal(disabled.json.dsh_session.session_id, first.json.dsh_session.session_id)
+    assert.equal(disabled.json.dsh_session.skill_id, undefined)
+    assert.equal(acquired, reads, 'disabled requests must not read the Skill')
+    const sid = first.json.dsh_session.session_id
+    assert.ok(!app.engine.augmentProtocolAssembly({ sections: [] }, sid).sections.some(section => section.name === 'st-bridge:skill'))
+    const enabled = await postDsh(app.base, { ...body('skill-on'), dsh_session: { ...dsh('skill-on'), skill_enabled: true, skill_id: 'tavern-lite' } })
+    assert.equal(enabled.response.status, 200, enabled.text)
+    assert.equal(enabled.json.dsh_session.skill_hash, changed.json.dsh_session.skill_hash)
+    assert.equal(Object.keys(app.engine.store.data.skillSnapshots).length, 2, 'one stored text per version, not per request')
+    const auto = body('auto'); delete auto.dsh_session.request_id
+    auto.dsh_session.skill_enabled = true
+    const autoOn = await postDsh(app.base, auto)
+    const autoOff = await postDsh(app.base, { ...auto, dsh_session: { ...auto.dsh_session, skill_enabled: false } })
+    assert.equal(autoOn.response.status, 200, autoOn.text)
+    assert.equal(autoOff.response.status, 200, autoOff.text)
+    assert.notEqual(autoOn.json.dsh_session.request_id, autoOff.json.dsh_session.request_id)
+    assert.equal(autoOff.json.dsh_session.skill_id, undefined)
 
     const mismatch = await postDsh(app.base, { ...body('skill-3'), dsh_session: { ...dsh('skill-3'), skill_id: 'other-skill' } })
     assert.equal(mismatch.response.status, 409)
@@ -1533,6 +1570,38 @@ test('bound skill is loaded, echoed, and content changes require a reset', async
     const assembled = app.engine.augmentProtocolAssembly({ sections: [] }, 'session-st-skill-injected')
     assert.ok(assembled.sections.some(section => section.name === 'st-bridge:skill' && section.text.includes('TEST_SKILL')))
     assert.equal(acquired, released)
+  } finally { await app.close() }
+})
+
+test('simultaneous retries keep the accepted Skill version while new requests read updates', async () => {
+  let content = 'VERSION_A', reads = 0
+  const app = await start({ skills: { get: async name => {
+    reads++
+    return { name, provider: 'filesystem', invocation: { userInvocable: true }, content }
+  } } }, { clientEndpoints: [{ id: 'yuzi-phone', label: 'test', taskId: 'phone', skillId: 'tavern-lite', enabled: true }] })
+  app.host.services.agentPresets.acquireScope = async () => ({ key: {}, [Symbol.asyncDispose]: async () => {} })
+  const body = id => ({ model: 'dsh-default', messages: [{ role: 'user', content: 'target' }], dsh_session: {
+    protocol_version: 1, client_id: 'yuzi-phone', chat_id: 'skill-concurrency', request_id: id,
+    skill_enabled: true, skill_id: 'tavern-lite', fixed_message_count: 0, fixed_message_types: [],
+  } })
+  try {
+    const firstPromise = postDsh(app.base, body('same'))
+    for (let i = 0; i < 100 && !app.engine.pendingSkills.size; i++) await new Promise(resolve => setTimeout(resolve, 5))
+    assert.equal(app.engine.pendingSkills.size, 1)
+    content = 'VERSION_B'
+    const [first, duplicate] = await Promise.all([firstPromise, postDsh(app.base, body('same'))])
+    assert.equal(first.response.status, 200, first.text)
+    assert.equal(duplicate.response.status, 200, duplicate.text)
+    assert.equal(first.json.dsh_session.skill_hash, duplicate.json.dsh_session.skill_hash)
+    assert.equal(reads, 1)
+    assert.equal(app.engine.pendingSkills.size, 0)
+    const next = await postDsh(app.base, body('next'))
+    assert.equal(next.response.status, 200, next.text)
+    assert.notEqual(next.json.dsh_session.skill_hash, first.json.dsh_session.skill_hash)
+    assert.equal(app.sessions.size, 1)
+    assert.equal(reads, 2)
+    const invalid = body('invalid'); invalid.dsh_session.skill_enabled = 'false'
+    assert.equal((await postDsh(app.base, invalid)).response.status, 400)
   } finally { await app.close() }
 })
 

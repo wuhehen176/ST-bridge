@@ -21,7 +21,7 @@ function engineWithPresets() {
   return new BridgeEngine(ctx, { agentPreset: 'st-bridge' }, { listChats: () => [] }, () => {})
 }
 
-test('bridge setup strips inherited tools/contexts and injects fixed rules', async () => {
+test('bridge setup keeps preset tools, strips runtime contexts, and injects fixed rules', async () => {
   const engine = engineWithPresets()
   const sessionId = 'session-test'
   engine.runtimeFor(sessionId, [
@@ -62,7 +62,10 @@ test('bridge setup strips inherited tools/contexts and injects fixed rules', asy
   assert.match(result.sections[1].text, /SPEC_RULE/)
   assert.match(result.sections[2].text, /DYNAMIC_WORLDBOOK/)
   assert.deepEqual(result.contexts, [])
-  assert.deepEqual(result.tools, [])
+  assert.deepEqual(result.tools, assembled.tools)
+  const execute = listeners.get('tools/pre-execute')
+  assert.equal(typeof execute, 'function')
+  assert.deepEqual(await execute({ name: 'ops_bash' }, async () => ({ kind: 'allow' })), { kind: 'allow' })
 
   engine.runtimeFor(sessionId).params = { temperature: 0.6, maxTokens: 512 }
   const requestResult = await request({}, async () => ({ provider: 'p', model: 'm' }))
@@ -82,8 +85,17 @@ test('bridge setup strips inherited tools/contexts and injects fixed rules', asy
     'deployment:persona-prefix',
     'st-bridge:turn-policy',
   ])
-  assert.deepEqual(fallback.tools, [])
+  assert.deepEqual(fallback.tools, assembled.tools)
   assert.deepEqual(fallback.contexts, [])
+
+  const externalRuntime = engine.runtimeFor('session-external')
+  externalRuntime.externalTools = { schemas: [{ name: 'caller_tool' }], stopped: false }
+  const externalListeners = new Map()
+  await engine.setupPreset('session-external')({
+    on(name, listener) { externalListeners.set(name, listener) },
+  })
+  const external = await externalListeners.get('system-prompt/assemble')({}, {}, async () => assembled)
+  assert.deepEqual(external.tools, [{ name: 'caller_tool' }])
 })
 
 test('earlyTurnFailure detects a policy error that has no user message event', () => {
@@ -158,6 +170,25 @@ test('protocol snapshots shadow only owned system nodes and retain conversations
   assert.equal(engine.replaceProtocolSystemSnapshot(runtime, { turn: 9, step: 1 }), 0)
   runtime.dynamicSystem = []
   assert.equal(engine.replaceProtocolSystemSnapshot(runtime, { turn: 10, step: 1 }), 1)
+  const install = text => {
+    const head = session.surface.nodes[0]
+    session.append('system/message', { message: { content: [{ type: 'text', text }] } }, {
+      surfaceOp: { op: 'replace', startSeq: head, endSeq: head }, sourceEventSeqs: [head],
+    })
+  }
+  install('<skill_content name="test">SKILL_A</skill_content>')
+  runtime.skillText = '<skill_content name="test">SKILL_B</skill_content>'
+  runtime.skillHash = 'version-b'
+  assert.equal(engine.replaceProtocolSystemSnapshot(runtime, { turn: 11, step: 1 }), 1)
+  install(runtime.skillText)
+  const assembled = engine.augmentProtocolAssembly({ sections: [] }, id)
+  assert.equal(assembled.sections.filter(section => section.name === 'st-bridge:skill').length, 1)
+  runtime.skillText = ''; runtime.skillHash = ''
+  assert.equal(engine.replaceProtocolSystemSnapshot(runtime, { turn: 12, step: 1 }), 1)
+  const visible = session.surface.nodes.map(seq => JSON.stringify(events[seq])).join('\n')
+  assert.doesNotMatch(visible, /SKILL_A|SKILL_B/)
+  assert.match(visible, /USER/)
+  assert.match(visible, /ANSWER/)
 })
 
 test('legacy sessions are untouched and unsupported native projection fails explicitly', () => {

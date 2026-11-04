@@ -134,6 +134,49 @@ test('registerPanelRpc uses the DSH connection channel when available', async ()
   assert.equal(disposed, true)
 })
 
+test('agent presets are exposed for the model dropdown', async () => {
+  const dir = tempDir()
+  try {
+    const config = normalizeConfig({ stateDir: dir, cwd: dir, port: 43121 })
+    const service = {
+      get defaultId() { return 'st-bridge' },
+      async list() {
+        return [
+          { id: 'st-bridge', name: 'ST-bridge', description: 'ST-bridge 专用预设', order: 1 },
+          { id: 'broken-preset', name: 'Broken', order: 2, broken: 'activation failed' },
+        ]
+      },
+    }
+    const panel = new PanelController({
+      ctx: { get: name => name === 'agentPresets' ? service : undefined },
+      config,
+      store: { listChats: () => [] },
+      engine: {},
+      serverControl: { isRunning: () => false, start: async () => {}, stop: async () => {}, restart: async () => {} },
+      log: () => {},
+      version: '0.14.6',
+    })
+    const result = await panel.call('agent_presets', {})
+    assert.equal(result.ok, true)
+    assert.equal(result.value.available, true)
+    assert.equal(result.value.current, config.agentPreset)
+    assert.equal(result.value.defaultId, 'st-bridge')
+    assert.deepEqual(result.value.presets.map(item => item.id), ['st-bridge', 'broken-preset'])
+    assert.equal(result.value.presets[1].broken, 'activation failed')
+
+    const fallback = new PanelController({
+      ctx: {}, config, store: { listChats: () => [] }, engine: {},
+      serverControl: { isRunning: () => false, start: async () => {}, stop: async () => {}, restart: async () => {} },
+      log: () => {}, version: '0.14.6',
+    })
+    const missing = await fallback.call('agent_presets', {})
+    assert.equal(missing.value.available, false)
+    assert.deepEqual(missing.value.presets, [])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('PanelController actions require confirmation for destructive operations', async () => {
   const dir = tempDir()
   try {

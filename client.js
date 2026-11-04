@@ -155,6 +155,7 @@ window.__ModuleLoader__.load({
       const [rawText, setRawText] = React.useState('')
       const [rawLoaded, setRawLoaded] = React.useState(false)
       const [presets, setPresets] = React.useState(null)
+      const [agentPresetOptions, setAgentPresetOptions] = React.useState(null)
       const [endpointBase, setEndpointBase] = React.useState('')
 
       const rpc = React.useCallback(async (endpoint, payload = {}) => {
@@ -192,6 +193,26 @@ window.__ModuleLoader__.load({
         })()
         return () => { cancelled = true }
       }, [tab, rawLoaded, rpc])
+
+      React.useEffect(() => {
+        if (tab !== 'model') return
+        let cancelled = false
+        void (async () => {
+          try {
+            const value = await rpc('agent_presets')
+            if (!cancelled) setAgentPresetOptions(value)
+          } catch (err) {
+            if (!cancelled) {
+              setAgentPresetOptions({
+                available: false,
+                presets: [],
+                error: err instanceof Error ? err.message : String(err),
+              })
+            }
+          }
+        })()
+        return () => { cancelled = true }
+      }, [tab, rpc])
 
       const setField = (key, value) => setForm(current => ({ ...current, [key]: value }))
 
@@ -391,6 +412,40 @@ window.__ModuleLoader__.load({
         return [chat.client_label, chat.client_id, chat.chat_id, chat.task_id, chat.title, chat.session_id]
           .some(value => String(value ?? '').toLowerCase().includes(needle))
       })
+
+      const agentPresetField = () => {
+        const info = agentPresetOptions
+        const rows = Array.isArray(info?.presets) ? info.presets : []
+        const selected = rows.find(row => row.id === form.agentPreset)
+        if (info?.available === false) {
+          return h(Field, { label: 'Agent 预设', hint: '无法读取宿主预设列表，可直接填写预设 ID。' },
+            h('input', { className: 'bbh-input', value: form.agentPreset, onChange: e => setField('agentPreset', e.target.value) }))
+        }
+        const hint = selected?.broken
+          ? `当前预设不可用：${selected.broken}`
+          : selected?.description || (info === null
+              ? '正在读取可用预设…'
+              : rows.length === 0
+                ? '宿主没有返回可用预设。'
+                : '从列表中选择 DSH 当前可用的 Agent 预设；工具跟随所选预设，执行权限由 DSH 策略决定。')
+        const options = []
+        if (!form.agentPreset) {
+          options.push(h('option', { key: 'empty', value: '', disabled: true }, '（未选择）'))
+        } else if (!selected) {
+          options.push(h('option', { key: 'current', value: form.agentPreset }, `${form.agentPreset}（当前）`))
+        }
+        for (const row of rows) {
+          const suffix = row.broken ? '（不可用）' : row.id === info?.defaultId ? '（默认）' : ''
+          options.push(h('option', {
+            key: row.id,
+            value: row.id,
+            disabled: Boolean(row.broken) && row.id !== form.agentPreset,
+            title: row.broken || row.description || undefined,
+          }, `${row.name || row.id}${suffix}`))
+        }
+        return h(Field, { label: 'Agent 预设', hint },
+          h('select', { className: 'bbh-select', value: form.agentPreset, onChange: e => setField('agentPreset', e.target.value) }, ...options))
+      }
 
       const tabs = [
         ['general', '服务'],
@@ -596,8 +651,7 @@ window.__ModuleLoader__.load({
               h('input', { className: 'bbh-input', value: form.model, onChange: e => setField('model', e.target.value) })),
           ),
           h('div', { className: 'bbh-grid2' },
-            h(Field, { label: 'Agent 预设', hint: '默认 ST-bridge 专用预设。' },
-              h('input', { className: 'bbh-input', value: form.agentPreset, onChange: e => setField('agentPreset', e.target.value) })),
+            agentPresetField(),
             h(Field, { label: '工作区 cwd', hint: '新会话挂载到该目录对应的工作区。' },
               h('input', { className: 'bbh-input', value: form.cwd, onChange: e => setField('cwd', e.target.value) })),
           ),

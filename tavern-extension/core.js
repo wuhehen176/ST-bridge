@@ -422,7 +422,9 @@ export async function adaptBody({ url, pageOrigin, body, base, parseObject = JSO
   if (route) {
     const declared = [session?.client_id, session?.clientId, effective.client_id, effective.clientId].filter(value => value !== undefined && value !== null && value !== '')
     if (declared.some(value => value !== route.id)) throw new Error('接入地址与请求client_id冲突，请为各插件使用独立预设')
-    const routedChat = dedicated ? session.chat_id : injectedChatId || session?.chat_id || session?.chatId
+    // Preserve plugin-owned scopes so generate matches its untouched sync/reset.
+    const rewriteChat = injectedChatId && auto.overrideChatId === true && Array.isArray(auto.clients) && auto.clients.includes(route.id)
+    const routedChat = dedicated ? session.chat_id : rewriteChat ? injectedChatId : session?.chat_id || session?.chatId || injectedChatId
     if (!routedChat) throw new Error('插件专属地址需要当前酒馆聊天ID，请开启自动聊天隔离或由插件提供chat_id')
     session = {
       ...session, protocol_version: session?.protocol_version ?? 1, client_id: route.id, chat_id: routedChat,
@@ -492,7 +494,7 @@ export async function adaptBody({ url, pageOrigin, body, base, parseObject = JSO
   const selection = selections[scope]
   const context = { version: 1, profile_id: typeof selection === 'string' ? selection : selection?.id || 'original', sources,
     ...(selection?.hash ? { profile_hash: selection.hash } : {}) }
-  context.transport = { version: 1, adapter_version: '0.4.5', trace_id: traceId(), messages_digest: await messagesDigest(messages) }
+  context.transport = { version: 1, adapter_version: '0.4.7', trace_id: traceId(), messages_digest: await messagesDigest(messages) }
   const next = proxy
     ? { ...envelope, messages, custom_include_body: JSON.stringify({ ...include, ...(Object.hasOwn(include, 'messages') ? { messages } : {}), dsh_context: context }) }
     : { ...body, messages, dsh_session: session, dsh_context: context }

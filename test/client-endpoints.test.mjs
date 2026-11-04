@@ -16,6 +16,30 @@ const messages = [{ role: 'user', content: 'Synthetic test only.' }]
 const yuzi = { chat_completion_source: 'openai', reverse_proxy: 'http://192.168.3.47:43121/clients/yuzi-phone/v1', proxy_password: 'old-test-key', model: 'dsh-default', messages }
 const database = { chat_completion_source: 'custom', custom_url: 'http://192.168.3.47:43121/clients/shujuku/v1', model: 'dsh-default', messages }
 
+test('explicit plugin scopes stay identical across reset, sync and generate on registered endpoints', async () => {
+  const route = { id: 'baibaohui', label: '柏宝绘', taskId: 'manga' }
+  const scope = { protocol_version: 1, client_id: route.id, chat_id: '["character","avatar.png","chat-one"]', task_id: 'manga-skill', session_id: 'newly-reset-session', request_id: 'request', fixed_message_count: 0, fixed_message_types: [] }
+  for (const proxyMode of [false, true]) for (const action of ['generate', 'sync_rules', 'reset']) {
+    const original = { ...scope, action }
+    const body = proxyMode ? { model: 'dsh-default', messages, chat_completion_source: 'custom', custom_url: 'http://192.168.3.47:43121/clients/baibaohui/v1', custom_include_body: JSON.stringify({ dsh_session: original }) }
+      : { model: 'dsh-default', messages, dsh_session: original }
+    const output = await adaptBody({ ...options, autoInject: { enabled: true, prefix: 'stb-', overrideChatId: true, clients: ['yuzi-phone', 'shujuku'] }, resolveEndpoint: async () => route,
+      url: proxyMode ? proxy : 'http://192.168.3.47:43121/clients/baibaohui/v1/chat/completions', body })
+    const actual = proxyMode ? JSON.parse(output.body.custom_include_body).dsh_session : output.body.dsh_session
+    assert.deepEqual(actual, original)
+  }
+})
+
+test('registered static clients override explicit chat IDs only when selected', async () => {
+  const session = { protocol_version: 1, client_id: 'shujuku', chat_id: 'static-chat', action: 'generate' }
+  for (const enabled of [true, false]) {
+    const adapted = await adaptBody({ ...options, body: { ...database, dsh_session: session },
+      autoInject: { enabled: true, prefix: 'stb-', overrideChatId: enabled, clients: ['shujuku'] } })
+    const actual = JSON.parse(adapted.body.custom_include_body).dsh_session
+    assert.equal(actual.chat_id, enabled ? 'stb-chat-one' : 'static-chat')
+  }
+})
+
 test('dedicated generation preserves plugin scope on generic and routed endpoints, direct and proxied', async () => {
   const session = { protocol_version: 1, session_mode: 'dedicated', client_id: 'yuzi-phone',
     chat_id: 'plugin-dedicated:stable', task_id: 'manga', session_id: 'synced-session',

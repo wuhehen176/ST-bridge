@@ -3,8 +3,8 @@
   "loading_order": 1,
   "requires": [],
   "optional": [],
-  "js": "index.js?v=0.4.6",
+  "js": "index.js?v=0.4.7",
   "author": "ST-bridge contributors",
-  "version": "0.4.6",
+  "version": "0.4.7",
   "auto_update": false
 }
