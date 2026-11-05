@@ -15,6 +15,7 @@ import { PairingService } from './lib/pairing.js'
 import { createBridgeServer, VERSION } from './lib/server.js'
 import { BridgeStore } from './lib/store.js'
 import { normalizeSnapshotMarker } from './lib/snapshot-diff.js'
+import { normalizeSystemSnapshotMode } from './lib/system-snapshot.js'
 import { clientEndpoints } from './lib/client-endpoints.js'
 import { clampInteger, ensureDir } from './lib/util.js'
 
@@ -93,6 +94,9 @@ function normalizeConfig(raw) {
       tags: Array.isArray(config.inputCleanup?.tags) && config.inputCleanup.tags.length > 0
         ? config.inputCleanup.tags.map(String)
         : ['bbi_image'],
+    },
+    systemSnapshot: {
+      mode: normalizeSystemSnapshotMode(config.systemSnapshot?.mode),
     },
     snapshotDiff: {
       enabled: config.snapshotDiff?.enabled === true,

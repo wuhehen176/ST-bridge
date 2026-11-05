@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { BridgeEngine } from '../lib/engine.js'
 
-function engineWithPresets() {
+function engineWithPresets(overrides = {}) {
   const ctx = {
     agents: {},
     get(name) {
@@ -18,7 +18,7 @@ function engineWithPresets() {
       return undefined
     },
   }
-  return new BridgeEngine(ctx, { agentPreset: 'st-bridge' }, { listChats: () => [] }, () => {})
+  return new BridgeEngine(ctx, { agentPreset: 'st-bridge', ...overrides }, { listChats: () => [] }, () => {})
 }
 
 test('bridge setup keeps preset tools, strips runtime contexts, and injects fixed rules', async () => {
@@ -63,6 +63,7 @@ test('bridge setup keeps preset tools, strips runtime contexts, and injects fixe
   assert.match(result.sections[2].text, /DYNAMIC_WORLDBOOK/)
   assert.deepEqual(result.contexts, [])
   assert.deepEqual(result.tools, assembled.tools)
+  assert.match(engine.runtimeFor(sessionId).renderedSystemText, /DYNAMIC_WORLDBOOK/)
   const execute = listeners.get('tools/pre-execute')
   assert.equal(typeof execute, 'function')
   assert.deepEqual(await execute({ name: 'ops_bash' }, async () => ({ kind: 'allow' })), { kind: 'allow' })
@@ -168,11 +169,12 @@ test('turnFailure maps unsupported reasoning effort to a clear 400', () => {
   assert.equal(error.code, 'unsupported_reasoning_effort')
 })
 
-test('protocol snapshots shadow only owned system nodes and retain conversations', () => {
-  const engine = engineWithPresets()
+test('filled protocol snapshots replace owned system nodes with rendered text and retain conversations', () => {
+  const engine = engineWithPresets({ systemSnapshot: { mode: 'filled' } })
   const id = 'session-st-snapshot-test'
   const runtime = engine.runtimeFor(id)
   runtime.protocol = true
+  runtime.renderedSystemText = 'RENDERED'
   runtime.dynamicSystem = [{ role: 'system', text: 'LATEST' }]
   const events = [
     { type: 'system/message', data: { message: { content: [{ type: 'text', text: '<<<FIXED_RULE old' }] } } },
@@ -200,40 +202,18 @@ test('protocol snapshots shadow only owned system nodes and retain conversations
   assert.deepEqual(events.slice(0, initial.length), initial)
   assert.ok(session.surface.nodes.includes(1))
   assert.ok(session.surface.nodes.includes(2))
-  // Simulate the native projection installing one leading current system node.
-  const first = session.surface.nodes[0]
-  session.append('system/message', { message: { content: [{ type: 'text', text: '<<<DYNAMIC_SYSTEM latest' }] } }, {
-    surfaceOp: { op: 'replace', startSeq: first, endSeq: first }, sourceEventSeqs: [first],
-  })
-  assert.equal(engine.replaceProtocolSystemSnapshot(runtime, { turn: 9, step: 1 }), 0)
-  runtime.dynamicSystem = []
-  assert.equal(engine.replaceProtocolSystemSnapshot(runtime, { turn: 10, step: 1 }), 1)
-  const install = text => {
-    const head = session.surface.nodes[0]
-    session.append('system/message', { message: { content: [{ type: 'text', text }] } }, {
-      surfaceOp: { op: 'replace', startSeq: head, endSeq: head }, sourceEventSeqs: [head],
-    })
-  }
-  install('<skill_content name="test">SKILL_A</skill_content>')
-  runtime.skillText = '<skill_content name="test">SKILL_B</skill_content>'
-  runtime.skillHash = 'version-b'
-  assert.equal(engine.replaceProtocolSystemSnapshot(runtime, { turn: 11, step: 1 }), 1)
-  install(runtime.skillText)
-  const assembled = engine.augmentProtocolAssembly({ sections: [] }, id)
-  assert.equal(assembled.sections.filter(section => section.name === 'st-bridge:skill').length, 1)
-  runtime.skillText = ''; runtime.skillHash = ''
-  assert.equal(engine.replaceProtocolSystemSnapshot(runtime, { turn: 12, step: 1 }), 1)
   const visible = session.surface.nodes.map(seq => JSON.stringify(events[seq])).join('\n')
-  assert.doesNotMatch(visible, /SKILL_A|SKILL_B/)
+  assert.match(visible, /RENDERED/)
   assert.match(visible, /USER/)
   assert.match(visible, /ANSWER/)
 })
 
-test('legacy sessions are untouched and unsupported native projection fails explicitly', () => {
-  const engine = engineWithPresets()
+test('legacy sessions are untouched and unsupported filled projection fails explicitly', () => {
+  const engine = engineWithPresets({ systemSnapshot: { mode: 'filled' } })
   assert.equal(engine.replaceProtocolSystemSnapshot(engine.runtimeFor('session-legacy'), {}), 0)
   const runtime = engine.runtimeFor('session-st-unsupported')
   runtime.protocol = true
+  runtime.renderedSystemText = 'RENDERED'
   engine.handles.set(runtime.sessionId, { agent: { session: {} } })
   assert.throws(() => engine.replaceProtocolSystemSnapshot(runtime, { turn: 1, step: 1 }),
     error => error.code === 'system_snapshot_unavailable')

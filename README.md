@@ -351,6 +351,14 @@ dsh_session:
 动态组开头的 `system` 消息（角色卡、世界书等）同样作为「本轮动态系统资料」
 注入 system 段，不挤进 user 正文；动态组其余消息保持原顺序和 role 标记。
 
+**系统段快照（0.16.1）**
+
+后续轮次的系统段由 `systemSnapshot.mode` 控制，默认 `native`。旧版会把系统段
+替换成空的 `system/message`，并假设 DSH 会重新渲染；当前 DSH 不会，模型从第二轮
+起会丢失世界书、固定规则和 Skill。`native` 不再替换正常节点，只在检测到旧版
+遗留的空系统节点时补写本轮完整系统段；`filled` 每轮替换为完整渲染文本；
+`empty` 仅用于复现问题，正常不要使用。可在设置页「系统段快照」中切换。
+
 **sync_rules**
 
 `messages` 只有固定组，`fixed_message_count === messages.length`。
@@ -859,7 +867,7 @@ scope 隔离、旧绑定兼容、工具模式拒绝、capabilities、410、reque
 
 柏宝绘可使用插件级稳定 chat_id，并发送 session_mode: "dedicated" 和 source_chat_id。
 普通模式保持原样。专属模式的 sync_rules/reset 成功响应在验证原生 surface API 后返回 dedicated-v1 能力确认。
-每次生成前，桥接分别替换受保护的系统头和历史会话尾部，旧事件仍留在不可变日志中；新生成使用本轮动态快照、当前有效固定规则及已确认的会话版式图册。
+每次生成前，桥接按 `systemSnapshot.mode` 维护受保护的系统头（默认 `native`，不再写入空节点），并替换历史会话尾部；旧事件仍留在不可变日志中。新生成使用本轮动态快照、当前有效固定规则及已确认的会话版式图册。
 快照差量裁剪在该模式下停用。相同 request_id 继续幂等，来源聊天改变会触发请求冲突。
 会话标题稳定为「柏宝绘专属会话 · 输出格式」，不跟随正文变化。
 

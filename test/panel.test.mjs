@@ -37,6 +37,10 @@ test('sanitizeSettings validates and normalizes panel fields', () => {
     assert.equal(remote.settings.host, '0.0.0.0')
     const allowed = sanitizeSettings({ allowedClientIds: 'yuzi-phone\nshujuku' }, config)
     assert.deepEqual(allowed.settings.allowedClientIds, ['yuzi-phone', 'shujuku'])
+    const filled = sanitizeSettings({ systemSnapshot: { mode: 'filled' } }, config)
+    assert.equal(filled.settings.systemSnapshot.mode, 'filled')
+    const invalid = sanitizeSettings({ systemSnapshot: { mode: 'bogus' } }, config)
+    assert.equal(invalid.settings.systemSnapshot.mode, 'native')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
