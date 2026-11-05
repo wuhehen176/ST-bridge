@@ -47,6 +47,10 @@ window.__ModuleLoader__.load({
 .bbh-btn.danger { background:var(--bbh-danger); }
 .bbh-btn.danger:hover:not(:disabled) { background:#c93b40; }
 .bbh-status { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:10px 12px; border-radius:10px; background:var(--bbh-accent-soft); }
+.bbh-savebar { position:sticky; top:0; z-index:6; display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; padding:8px 10px; border:1px solid var(--bbh-line); border-radius:10px; background:var(--bbh-fill); background:color-mix(in srgb, Canvas 94%, transparent); backdrop-filter:blur(8px); box-shadow:0 4px 14px rgba(0,0,0,.06); }
+.bbh-savebar-state { font-size:12px; font-weight:550; }
+.bbh-savebar-state.dirty { color:var(--bbh-danger); }
+.bbh-savebar-state.clean { color:var(--bbh-ok); }
 .bbh-dot { width:8px; height:8px; border-radius:50%; background:var(--bbh-ok); flex:none; }
 .bbh-dot.off { background:var(--bbh-danger); }
 .bbh-pill { font-size:11px; padding:1px 7px; border-radius:999px; background:var(--bbh-fill); opacity:.8; }
@@ -157,6 +161,7 @@ window.__ModuleLoader__.load({
       const [presets, setPresets] = React.useState(null)
       const [agentPresetOptions, setAgentPresetOptions] = React.useState(null)
       const [endpointBase, setEndpointBase] = React.useState('')
+      const [savedFingerprint, setSavedFingerprint] = React.useState('')
 
       const rpc = React.useCallback(async (endpoint, payload = {}) => {
         const result = await rpcRef.current(endpoint, payload)
@@ -167,8 +172,10 @@ window.__ModuleLoader__.load({
       const load = React.useCallback(async () => {
         try {
           const value = await rpc('status')
+          const next = formFrom(value)
           setStatus(value)
-          setForm(formFrom(value))
+          setForm(next)
+          setSavedFingerprint(JSON.stringify(next))
           setError('')
         } catch (err) {
           setError(err instanceof Error ? err.message : String(err))
@@ -406,6 +413,8 @@ window.__ModuleLoader__.load({
       })
 
       const chats = status?.chats ?? []
+      const dirty = savedFingerprint !== '' && JSON.stringify(form) !== savedFingerprint
+      const showSaveBar = status !== null && !['diagnostics', 'presets', 'danger', 'advanced'].includes(tab)
       const filtered = chats.filter(chat => {
         const needle = filter.trim().toLowerCase()
         if (!needle) return true
@@ -496,6 +505,16 @@ window.__ModuleLoader__.load({
         error ? h('p', { className: 'bbh-error' }, error) : null,
         notice ? h('p', { className: 'bbh-notice' }, notice) : null,
 
+        showSaveBar ? h('div', { className: 'bbh-savebar' },
+          h('span', { className: dirty ? 'bbh-savebar-state dirty' : 'bbh-savebar-state clean' },
+            dirty ? '● 有未保存修改' : '✓ 当前设置已保存'),
+          h('div', { className: 'bbh-actions' },
+            h('span', { className: 'bbh-note' }, '关闭设置窗口不会自动保存。'),
+            h('button', { type: 'button', className: 'bbh-btn', disabled: busy || !dirty, onClick: () => void save() }, busy ? '保存中…' : '保存设置'),
+            h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy || !dirty, onClick: () => void saveAndRestart() }, '保存并重启'),
+          ),
+        ) : null,
+
         status === null ? null : tab === 'general' ? h('div', { className: 'bbh-card' },
           h('h3', { className: 'bbh-card-title' }, '服务与安全'),
           h('p', { className: 'bbh-note' }, '手机 / TauriTavern 访问：开启后监听 0.0.0.0 并自动生成令牌；需在防火墙放行端口，且只建议在局域网或私有网络使用。'),
@@ -579,8 +598,11 @@ window.__ModuleLoader__.load({
             h('input', { className: 'bbh-input', type: 'number', min: 0, max: 2, value: form.transientRetry, onChange: e => setField('transientRetry', e.target.value) })),
           h(Check, { checked: form.allowRemote, onChange: value => setField('allowRemote', value), label: '允许绑定非本机地址', hint: '高风险，仅在已有 token 与网络隔离时使用。' }),
           h(Check, { checked: form.inputCleanupEnabled, onChange: value => setField('inputCleanupEnabled', value), label: '桥接侧清理 bbi_image 完整块', hint: '兜底处理绕过浏览器适配的请求；只删完整成对标签，孤立/跨消息保留并记录。' }),
-          h(Field, { label: '清理标签', hint: '逗号分隔，默认 bbi_image。' },
-            h('input', { className: 'bbh-input', value: form.inputCleanupTags, onChange: e => setField('inputCleanupTags', e.target.value) })),
+          h(Field, { label: '清理标签', hint: '逗号分隔，默认 bbi_image。修改后点右侧「保存」或上方「保存设置」写入；关闭窗口不会自动保存。' },
+            h('div', { className: 'bbh-actions' },
+              h('input', { className: 'bbh-input', value: form.inputCleanupTags, onChange: e => setField('inputCleanupTags', e.target.value) }),
+              h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => void save() }, '保存'),
+            )),
           h('div', { className: 'bbh-grid2' },
             h(Field, { label: '追加包装格式', hint: 'nonce = 短分隔符；tagged = 原 ST_BRIDGE_MESSAGE。' },
               h('input', { className: 'bbh-input', value: form.appendFormat, onChange: e => setField('appendFormat', e.target.value) })),
