@@ -125,6 +125,45 @@ test('keep token pins blocks against leading/trailing trim', () => {
   assert.equal(lastResult.diagnostic.trimmed_blocks, 1)
 })
 
+test('KEEP prevents whole-message prefix and suffix trimming across changed turns', () => {
+  const world = '<<<STB-KEEP>>>\nWORLD_ENTRY_A\n\nWORLD_ENTRY_B\n<<<STB-/KEEP>>>'
+  for (const options of [{mode:'auto',marker:MARKER}, {mode:'marker',marker:MARKER}]) {
+    for (const marked of [false,true]) {
+      const protect = marked ? wrap(world) : world
+      for (const position of ['head','tail','both']) {
+        const sequence = target => position === 'head' ? [msg('system',protect),msg('user',target)]
+          : position === 'tail' ? [msg('user',target),msg('system',protect)]
+          : [msg('system','UNPROTECTED_HEADER'),msg('system',protect),msg('user',target),msg('system',protect)]
+        const previous = sequence('PREVIOUS_TARGET')
+        const result = diffAgainstSnapshot(sequence('NEW_TARGET'), {mode:options.mode,marker:options.marker,turn:1,messages:snapshotOf(previous,options)},options)
+        const outgoing = stripMarkersInMessages(result.messages,options.marker)
+        const worlds = outgoing.filter(message=>message.text.includes('WORLD_ENTRY_A'))
+        assert.equal(worlds.length,position==='both'?2:1)
+        assert.ok(worlds.every(message=>message.text.includes('WORLD_ENTRY_B')))
+        assert.ok(outgoing.some(message=>message.text==='NEW_TARGET'))
+        assert.ok(outgoing.every(message=>!message.text.includes('<<<STB-')))
+      }
+    }
+  }
+})
+
+test('worldbook KEEP protects a changed middle and stable surrounding blocks', () => {
+  const protect = middle => `<<<STB-KEEP>>>\nWORLD_HEADER\n\n${middle}\n\nWORLD_TAIL\n<<<STB-/KEEP>>>`
+  const previous=[msg('system',protect('OLD_ENTRY')),msg('user','OLD_TARGET')]
+  const current=[msg('system',protect('NEW_ENTRY')),msg('user','NEW_TARGET')]
+  const result=diffAgainstSnapshot(current,{mode:'auto',messages:snapshotOf(previous,{mode:'auto'})},{mode:'auto'})
+  const text=stripMarkersInMessages(result.messages,'')[0].text
+  assert.equal(text,'WORLD_HEADER\n\nNEW_ENTRY\n\nWORLD_TAIL')
+})
+
+test('ordinary repeated messages remain trimmable and an orphan close token grants no KEEP range', () => {
+  for (const world of ['WORLD_ENTRY', 'WORLD_ENTRY\n<<<STB-/KEEP>>>']) {
+    const previous=[msg('system',world),msg('user','PREVIOUS_TARGET')]
+    const result=diffAgainstSnapshot([msg('system',world),msg('user','NEW_TARGET')],{mode:'auto',messages:snapshotOf(previous,{mode:'auto'})},{mode:'auto'})
+    assert.deepEqual(result.messages.map(message=>message.role),['user'])
+  }
+})
+
 test('paired keep tokens pin every block in the range', () => {
   const K = '<<<STB-KEEP>>>'
   const C = '<<<STB-/KEEP>>>'
