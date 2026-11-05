@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { BridgeEngine } from '../lib/engine.js'
+import { BridgeEngine, leadingSystemMessages } from '../lib/engine.js'
 
 function engineWithPresets(overrides = {}) {
   const ctx = {
@@ -217,6 +217,16 @@ test('legacy sessions are untouched and unsupported filled projection fails expl
   engine.handles.set(runtime.sessionId, { agent: { session: {} } })
   assert.throws(() => engine.replaceProtocolSystemSnapshot(runtime, { turn: 1, step: 1 }),
     error => error.code === 'system_snapshot_unavailable')
+})
+
+test('leading system blocks are taken from the full dynamic group, not the trimmed diff', () => {
+  const messages = [
+    { role: 'system', text: '<<<STB-KEEP>>>WORLDBOOK' },
+    { role: 'system', text: 'STYLE_002' },
+    { role: 'user', text: 'TARGET_TEXT' },
+  ]
+  assert.deepEqual(leadingSystemMessages(messages).map(message => message.text), ['WORLDBOOK', 'STYLE_002'])
+  assert.deepEqual(leadingSystemMessages(messages.slice(2)), [])
 })
 
 test('dedicated surface compacts the conversation tail separately from a protected system head',()=>{
