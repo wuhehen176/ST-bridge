@@ -1670,7 +1670,7 @@ test('dedicated atlas prefix survives history clearing and restart, updates revi
     const newer = active().find(event => event.type === 'user/message' && event.data.id.startsWith('layout-atlas:'))
     assert.ok(newer)
     const seq = agent.session.surface.nodes.find(seq => agent.session.eventAt(seq) === newer)
-    agent.session.append('system/message', { turn: 4, step: 0, message: { id: 'compaction', role: 'system', content: [], source: { kind: 'system-prompt' } } },
+    agent.session.append('system/message', { turn: 4, step: 1, message: { id: 'compaction', role: 'system', content: [], source: { kind: 'system-prompt' } } },
       { surfaceOp: { op: 'replace', startSeq: seq, endSeq: seq }, sourceEventSeqs: [seq] })
     const count = agent.prompts.length
     const missing = await generate('atlas-missing', 'b'.repeat(64), [{ role: 'user', content: 'STORY_E' }])

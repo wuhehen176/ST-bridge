@@ -205,7 +205,10 @@ test('dedicated surface compacts the conversation tail separately from a protect
  const engine=engineWithPresets(),events=[{type:'system/message',data:{text:'OLD_RULES'}},{type:'user/message',data:{text:'OLD_TASK'}},{type:'assistant/message',data:{text:'OLD_RESULT'}}]
  const original=structuredClone(events),nodes=[0,1,2]
  const session={surface:{nodes},eventAt:seq=>events[seq],append(type,data,options){
-  if(type==='system/message') assert.ok(data.turn>0,'format v4 system/message turn must be positive')
+  if(type==='system/message') {
+    assert.ok(data.turn>0,'format v4 system/message turn must be positive')
+    assert.ok(Number.isInteger(data.step)&&data.step>0,'format v4 system/message step must be positive')
+  }
   const op=options.surfaceOp,start=nodes.indexOf(op.startSeq),end=nodes.indexOf(op.endSeq)
   if(start===0 && events[nodes[0]].type==='system/message') assert.equal(end,0)
   const seq=events.length;events.push({type,data});nodes.splice(start,end-start+1,seq)
