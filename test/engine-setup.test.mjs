@@ -98,6 +98,44 @@ test('bridge setup keeps preset tools, strips runtime contexts, and injects fixe
   assert.deepEqual(external.tools, [{ name: 'caller_tool' }])
 })
 
+test('per-plugin model, preset, cwd and max tokens override DSH defaults', async () => {
+  const mounted = []
+  const ctx = {
+    agents: {},
+    get(name) {
+      if (name === 'agentPresets') {
+        return { defaultId: 'dsh-default-preset', mount: async (_agentCtx, preset) => { mounted.push(preset) } }
+      }
+      if (name === 'agentDefaultModel') {
+        return { currentSelection: () => ({ provider: 'dsh-provider', model: 'dsh-model' }) }
+      }
+      if (name === 'workspaceRegistry') {
+        return { list: () => [{ path: 'D:/AIGC/ST' }, { path: 'D:/AIGC/MOSS' }] }
+      }
+      return undefined
+    },
+  }
+  const config = {
+    clientEndpoints: [
+      { id: 'plugin-a', label: 'A', taskId: 'a', provider: 'vendor', model: 'model-x', agentPreset: 'preset-a', cwd: 'D:/AIGC/MOSS', maxTokens: 2048 },
+      { id: 'plugin-b', label: 'B', taskId: 'b' },
+    ],
+  }
+  const engine = new BridgeEngine(ctx, config, { listChats: () => [] }, () => {})
+
+  assert.deepEqual(await engine.resolveAgentOptions(undefined, 'plugin-a'), { provider: 'vendor', model: 'model-x', maxTokens: 2048 })
+  assert.deepEqual(await engine.resolveAgentOptions(512, 'plugin-a'), { provider: 'vendor', model: 'model-x', maxTokens: 512 })
+  assert.deepEqual(await engine.resolveAgentOptions(undefined, 'plugin-b'), { provider: 'dsh-provider', model: 'dsh-model' })
+  assert.equal(engine.presetFor('plugin-a'), 'preset-a')
+  assert.equal(engine.presetFor('plugin-b'), 'dsh-default-preset')
+  assert.equal(engine.effectiveCwd('D:/AIGC/MOSS'), 'D:/AIGC/MOSS')
+  assert.equal(engine.effectiveCwd('D:/not-a-workspace'), 'D:/AIGC/ST')
+  assert.equal(engine.effectiveCwd(), 'D:/AIGC/ST')
+
+  await engine.setupPreset('session-test', engine.runtimeFor('session-test'), 'preset-a')({ on() {} })
+  assert.deepEqual(mounted, ['preset-a'])
+})
+
 test('earlyTurnFailure detects a policy error that has no user message event', () => {
   const engine = engineWithPresets()
   const events = [

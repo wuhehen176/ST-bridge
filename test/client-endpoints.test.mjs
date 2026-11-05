@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { clientEndpoints, clientEndpointPath, endpointSession } from '../lib/client-endpoints.js'
+import { clientEndpoints, clientEndpointConfig, clientEndpointPath, endpointSession } from '../lib/client-endpoints.js'
 import { createBridgeServer } from '../lib/server.js'
 import { normalizeConfig } from '../index.js'
 import { sanitizeSettings } from '../lib/panel.js'
@@ -73,6 +73,30 @@ test('endpoint registry validates unique stable IDs, preserves an empty registry
   assert.equal(clientEndpointPath('/clients/new-plugin/v1/bridge/status'), null)
   assert.equal(clientEndpointPath('/clients/%2f/v1/models'), null)
   assert.equal(localBase(yuzi.reverse_proxy + '/'), yuzi.reverse_proxy)
+})
+
+test('endpoint registry carries per-plugin model, preset, cwd and token overrides', () => {
+  const entry = {
+    id: 'per-plugin', label: '独立配置', taskId: 'summary', enabled: true,
+    provider: 'vendor', model: 'model-x', agentPreset: 'preset-a',
+    cwd: 'D:\\\\AIGC\\\\ST', maxTokens: 4096,
+  }
+  const [parsed] = clientEndpoints([entry])
+  assert.deepEqual(parsed, entry)
+  assert.deepEqual(clientEndpointConfig({ clientEndpoints: [entry] }, 'per-plugin'), entry)
+  assert.equal(clientEndpointConfig({ clientEndpoints: [entry] }, 'missing'), null)
+  assert.equal(clientEndpointConfig({ clientEndpoints: 'broken' }, 'per-plugin'), null)
+
+  assert.throws(() => clientEndpoints([{ ...entry, model: '' }]), /同时填写或同时留空/)
+  assert.throws(() => clientEndpoints([{ ...entry, provider: '' }]), /同时填写或同时留空/)
+  assert.throws(() => clientEndpoints([{ ...entry, maxTokens: 0 }]), /1-1000000/)
+  assert.throws(() => clientEndpoints([{ ...entry, maxTokens: 1_000_001 }]), /1-1000000/)
+  assert.throws(() => clientEndpoints([{ ...entry, agentPreset: 'bad preset' }]), /预设 ID/)
+
+  const [blank] = clientEndpoints([{ id: 'blank', label: '空配置', taskId: 'x', provider: '', model: '', maxTokens: '' }])
+  assert.equal('provider' in blank, false)
+  assert.equal('model' in blank, false)
+  assert.equal('maxTokens' in blank, false)
 })
 
 test('route identity rejects conflicting declarations without erasing existing protocol fields', () => {
@@ -162,6 +186,16 @@ test('real HTTP aliases use device authentication and retain client/chat isolati
   assert.deepEqual(capabilities.data.client_endpoints, routes)
   app.config.clientEndpoints = [...routes, { id: 'summary', label: '总结', taskId: 'summary', enabled: true }]
   assert.equal((await app.request('/clients/summary/v1/models')).status, 200)
+})
+
+test('HTTP aliases accept the per-plugin model and reject an unrelated model', async t => {
+  const entry = { id: 'model-plugin', label: '独立模型', taskId: 'model', enabled: true, provider: 'vendor', model: 'model-x' }
+  const app = await server(t, { clientEndpoints: clientEndpoints([entry]) })
+  const accepted = await app.request('/clients/model-plugin/v1/chat/completions', { messages, chat_id: 'chat', model: 'model-x' })
+  assert.equal(accepted.status, 200)
+  const rejected = await app.request('/clients/model-plugin/v1/chat/completions', { messages, chat_id: 'chat', model: 'other-model' })
+  assert.equal(rejected.status, 400)
+  assert.equal(rejected.data.error.code, 'model_not_found')
 })
 
 test('HTTP aliases never fall back on missing chat, unknown/disabled registration or conflicting client', async t => {

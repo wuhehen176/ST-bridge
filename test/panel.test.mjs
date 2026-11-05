@@ -177,6 +177,77 @@ test('agent presets are exposed for the model dropdown', async () => {
   }
 })
 
+test('model catalog and workspace list drive per-plugin dropdowns', async () => {
+  const dir = tempDir()
+  try {
+    const config = normalizeConfig({ stateDir: dir, cwd: 'D:/AIGC/ST', port: 43121 })
+    const ctx = {
+      get(name) {
+        if (name === 'agentDefaultModel') {
+          return { currentSelection: () => ({ provider: 'vendor', model: 'model-default' }) }
+        }
+        if (name === 'workspaceRegistry') {
+          return {
+            list: () => [
+              { path: 'D:/AIGC/ST', name: 'ST' },
+              { path: 'D:/AIGC/MOSS' },
+              { path: 'D:/AIGC/ST', name: 'duplicate' },
+            ],
+          }
+        }
+        return undefined
+      },
+      llm: {
+        async listProviders() {
+          return [
+            { id: 'vendor', name: 'Vendor' },
+            { id: 'second', name: '' },
+          ]
+        },
+        async listModels(provider) {
+          if (provider === 'vendor') return [{ id: 'model-a', name: 'Model A', description: 'A' }, { id: 'model-b' }]
+          throw new Error('provider offline')
+        },
+      },
+    }
+    const panel = new PanelController({
+      ctx, config,
+      store: { listChats: () => [] },
+      engine: {},
+      serverControl: { isRunning: () => false, start: async () => {}, stop: async () => {}, restart: async () => {} },
+      log: () => {},
+      version: '0.16.0',
+    })
+
+    const catalog = await panel.call('model_catalog', {})
+    assert.equal(catalog.ok, true)
+    assert.equal(catalog.value.available, true)
+    assert.deepEqual(catalog.value.default, { provider: 'vendor', model: 'model-default' })
+    assert.deepEqual(catalog.value.providers.map(group => group.id), ['vendor', 'second'])
+    assert.deepEqual(catalog.value.providers[0].models.map(model => model.id), ['model-a', 'model-b'])
+    assert.deepEqual(catalog.value.providers[1].models, [])
+
+    const workspaces = await panel.call('workspaces', {})
+    assert.equal(workspaces.ok, true)
+    assert.equal(workspaces.value.available, true)
+    assert.equal(workspaces.value.current, 'D:/AIGC/ST')
+    assert.deepEqual(workspaces.value.workspaces, [
+      { path: 'D:/AIGC/ST', name: 'ST' },
+      { path: 'D:/AIGC/MOSS', name: 'D:/AIGC/MOSS' },
+    ])
+
+    const fallback = new PanelController({
+      ctx: {}, config, store: { listChats: () => [] }, engine: {},
+      serverControl: { isRunning: () => false, start: async () => {}, stop: async () => {}, restart: async () => {} },
+      log: () => {}, version: '0.16.0',
+    })
+    assert.equal((await fallback.call('model_catalog', {})).value.available, false)
+    assert.equal((await fallback.call('workspaces', {})).value.available, false)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('PanelController actions require confirmation for destructive operations', async () => {
   const dir = tempDir()
   try {

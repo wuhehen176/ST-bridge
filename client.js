@@ -105,11 +105,6 @@ window.__ModuleLoader__.load({
       return {
         host: status?.service?.host ?? '127.0.0.1',
         port: String(status?.service?.port ?? 43121),
-        provider: status?.model?.provider ?? '',
-        model: status?.model?.model ?? '',
-        agentPreset: status?.model?.agentPreset ?? '',
-        cwd: status?.model?.cwd ?? '',
-        maxTokens: status?.model?.maxTokens == null ? '' : String(status.model.maxTokens),
         requestTimeoutMs: String(status?.service?.requestTimeoutMs ?? 1800000),
         maxBodyBytes: String(status?.service?.maxBodyBytes ?? 33554432),
         authToken: '',
@@ -160,6 +155,8 @@ window.__ModuleLoader__.load({
       const [rawLoaded, setRawLoaded] = React.useState(false)
       const [presets, setPresets] = React.useState(null)
       const [agentPresetOptions, setAgentPresetOptions] = React.useState(null)
+      const [modelCatalog, setModelCatalog] = React.useState(null)
+      const [workspaceOptions, setWorkspaceOptions] = React.useState(null)
       const [endpointBase, setEndpointBase] = React.useState('')
       const [savedFingerprint, setSavedFingerprint] = React.useState('')
 
@@ -202,21 +199,24 @@ window.__ModuleLoader__.load({
       }, [tab, rawLoaded, rpc])
 
       React.useEffect(() => {
-        if (tab !== 'model') return
+        if (tab !== 'endpoints') return
         let cancelled = false
         void (async () => {
-          try {
-            const value = await rpc('agent_presets')
-            if (!cancelled) setAgentPresetOptions(value)
-          } catch (err) {
-            if (!cancelled) {
-              setAgentPresetOptions({
-                available: false,
-                presets: [],
-                error: err instanceof Error ? err.message : String(err),
-              })
-            }
-          }
+          const [presetResult, catalogResult, workspaceResult] = await Promise.allSettled([
+            rpc('agent_presets'),
+            rpc('model_catalog'),
+            rpc('workspaces'),
+          ])
+          if (cancelled) return
+          setAgentPresetOptions(presetResult.status === 'fulfilled'
+            ? presetResult.value
+            : { available: false, presets: [], error: failureText({ error: { message: presetResult.reason?.message ?? presetResult.reason } }) })
+          setModelCatalog(catalogResult.status === 'fulfilled'
+            ? catalogResult.value
+            : { available: false, providers: [], default: null, error: catalogResult.reason?.message ?? String(catalogResult.reason ?? '') })
+          setWorkspaceOptions(workspaceResult.status === 'fulfilled'
+            ? workspaceResult.value
+            : { available: false, current: '', workspaces: [], error: workspaceResult.reason?.message ?? String(workspaceResult.reason ?? '') })
         })()
         return () => { cancelled = true }
       }, [tab, rpc])
@@ -244,11 +244,6 @@ window.__ModuleLoader__.load({
         const payload = {
           host: form.host.trim(),
           port: Number(form.port),
-          provider: form.provider.trim(),
-          model: form.model.trim(),
-          agentPreset: form.agentPreset.trim(),
-          cwd: form.cwd.trim(),
-          maxTokens: form.maxTokens === '' ? null : Number(form.maxTokens),
           requestTimeoutMs: Number(form.requestTimeoutMs),
           maxBodyBytes: Number(form.maxBodyBytes),
           allowLegacyPlain: form.allowLegacyPlain,
@@ -261,7 +256,14 @@ window.__ModuleLoader__.load({
           allowNullOrigin: form.allowNullOrigin,
           corsOrigins: form.corsText.split(/[\n,]+/).map(item => item.trim()).filter(Boolean),
           allowedClientIds: form.allowedClientsText.split(/[\n,]+/).map(item => item.trim()).filter(Boolean),
-          clientEndpoints: form.clientEndpoints,
+          clientEndpoints: form.clientEndpoints.map(entry => ({
+            ...entry,
+            provider: String(entry.provider ?? '').trim(),
+            model: String(entry.model ?? '').trim(),
+            agentPreset: String(entry.agentPreset ?? '').trim(),
+            cwd: String(entry.cwd ?? '').trim(),
+            maxTokens: entry.maxTokens === '' || entry.maxTokens == null ? null : Number(entry.maxTokens),
+          })),
           plainCompat: {
             enabled: form.plainCompatEnabled,
             clientId: form.plainCompatClientId.trim() || 'yuzi-phone',
@@ -422,43 +424,42 @@ window.__ModuleLoader__.load({
           .some(value => String(value ?? '').toLowerCase().includes(needle))
       })
 
-      const agentPresetField = () => {
+      const agentPresetField = ({ value, onChange, label = 'Agent 预设' }) => {
         const info = agentPresetOptions
         const rows = Array.isArray(info?.presets) ? info.presets : []
-        const selected = rows.find(row => row.id === form.agentPreset)
+        const selected = rows.find(row => row.id === value)
         if (info?.available === false) {
-          return h(Field, { label: 'Agent 预设', hint: '无法读取宿主预设列表，可直接填写预设 ID。' },
-            h('input', { className: 'bbh-input', value: form.agentPreset, onChange: e => setField('agentPreset', e.target.value) }))
+          return h(Field, { label, hint: '无法读取宿主预设列表，可直接填写预设 ID。' },
+            h('input', { className: 'bbh-input', value, onChange: e => onChange(e.target.value) }))
         }
-        const hint = selected?.broken
-          ? `当前预设不可用：${selected.broken}`
-          : selected?.description || (info === null
-              ? '正在读取可用预设…'
-              : rows.length === 0
-                ? '宿主没有返回可用预设。'
-                : '从列表中选择 DSH 当前可用的 Agent 预设；工具跟随所选预设，执行权限由 DSH 策略决定。')
-        const options = []
-        if (!form.agentPreset) {
-          options.push(h('option', { key: 'empty', value: '', disabled: true }, '（未选择）'))
-        } else if (!selected) {
-          options.push(h('option', { key: 'current', value: form.agentPreset }, `${form.agentPreset}（当前）`))
+        const hint = value === ''
+          ? `未选择时跟随 DSH 默认预设${info?.defaultId ? `（${info.defaultId}）` : ''}；工具跟随所选预设，执行权限由 DSH 策略决定。`
+          : selected?.broken
+            ? `当前预设不可用：${selected.broken}`
+            : selected?.description || (info === null
+                ? '正在读取可用预设…'
+                : rows.length === 0
+                  ? '宿主没有返回可用预设。'
+                  : '工具跟随所选预设，执行权限由 DSH 策略决定。')
+        const options = [h('option', { key: 'empty', value: '' }, '跟随 DSH 默认')]
+        if (value && !selected) {
+          options.push(h('option', { key: 'current', value }, `${value}（当前）`))
         }
         for (const row of rows) {
           const suffix = row.broken ? '（不可用）' : row.id === info?.defaultId ? '（默认）' : ''
           options.push(h('option', {
             key: row.id,
             value: row.id,
-            disabled: Boolean(row.broken) && row.id !== form.agentPreset,
+            disabled: Boolean(row.broken) && row.id !== value,
             title: row.broken || row.description || undefined,
           }, `${row.name || row.id}${suffix}`))
         }
-        return h(Field, { label: 'Agent 预设', hint },
-          h('select', { className: 'bbh-select', value: form.agentPreset, onChange: e => setField('agentPreset', e.target.value) }, ...options))
+        return h(Field, { label, hint },
+          h('select', { className: 'bbh-select', value, onChange: e => onChange(e.target.value) }, ...options))
       }
 
       const tabs = [
         ['general', '服务'],
-        ['model', '模型'],
         ['endpoints', '插件接入'],
         ['clients', `客户端 (${chats.length})`],
         ['presets', '固定预设'],
@@ -471,7 +472,7 @@ window.__ModuleLoader__.load({
         h('style', null, CSS),
         h('header', { className: 'bbh-head' },
           h('h2', { className: 'bbh-title' }, 'ST-bridge'),
-          h('p', { className: 'bbh-sub' }, 'DSH Host 插件 ST-bridge 的服务、模型、scope 与会话管理。'),
+          h('p', { className: 'bbh-sub' }, 'DSH Host 插件 ST-bridge 的服务、插件接入、scope 与会话管理。'),
         ),
 
         status === null
@@ -663,30 +664,10 @@ window.__ModuleLoader__.load({
           ),
         ) : null,
 
-        status === null ? null : tab === 'model' ? h('div', { className: 'bbh-card' },
-          h('h3', { className: 'bbh-card-title' }, '模型与运行参数'),
-          h('p', { className: 'bbh-note' }, 'provider/model 留空表示跟随 DSH 当前默认模型。修改只影响新创建或重新恢复的会话；已有活动会话保持原模型，除非重置绑定或重建会话。'),
-          h('div', { className: 'bbh-grid2' },
-            h(Field, { label: 'Provider', hint: '例如 lunaroute；留空跟随 DSH。' },
-              h('input', { className: 'bbh-input', value: form.provider, onChange: e => setField('provider', e.target.value) })),
-            h(Field, { label: 'Model', hint: '例如 deepseek-4.1-flash；留空跟随 DSH。' },
-              h('input', { className: 'bbh-input', value: form.model, onChange: e => setField('model', e.target.value) })),
-          ),
-          h('div', { className: 'bbh-grid2' },
-            agentPresetField(),
-            h(Field, { label: '工作区 cwd', hint: '新会话挂载到该目录对应的工作区。' },
-              h('input', { className: 'bbh-input', value: form.cwd, onChange: e => setField('cwd', e.target.value) })),
-          ),
-          h(Field, { label: '默认 max_tokens', hint: '留空使用模型/DSH 默认；请求里的 max_tokens 优先。' },
-            h('input', { className: 'bbh-input', type: 'number', min: 1, value: form.maxTokens, onChange: e => setField('maxTokens', e.target.value) })),
-          h('div', { className: 'bbh-actions' },
-            h('button', { type: 'button', className: 'bbh-btn', disabled: busy, onClick: () => void save() }, busy ? '保存中…' : '保存模型设置'),
-          ),
-        ) : null,
-
         status === null ? null : tab === 'endpoints' ? h('div', { className: 'bbh-card' },
           h('h3', { className: 'bbh-card-title' }, '插件专属接入地址'),
           h('p', { className: 'bbh-note' }, '不同插件使用不同地址；扩展继续补充当前酒馆聊天 ID。地址只标识来源，认证仍使用原有设备令牌。保存后生效，无需重启服务。'),
+          h('p', { className: 'bbh-note' }, '模型、Agent 预设、工作区和 max_tokens 都按插件分别设置。留空时跟随 DSH 当前默认；不再使用全局模型设置。已有会话保持原配置，修改后需重置绑定或新建会话才切换。'),
           h(Field, { label: '复制地址时使用的电脑地址', hint: '手机请选择能访问的局域网地址，127.0.0.1只用于电脑本机。' },
             h('select', { className: 'bbh-select', value: endpointBase || status.network?.urls?.[0] || `http://127.0.0.1:${status.service.port}/v1`, onChange: e => setEndpointBase(e.target.value) },
               [...new Set([...(status.network?.urls ?? []), `http://127.0.0.1:${status.service.port}/v1`])].map(value => h('option', { key: value, value }, value)))),
@@ -694,6 +675,36 @@ window.__ModuleLoader__.load({
             const update = patch => setField('clientEndpoints', form.clientEndpoints.map((item, i) => i === index ? { ...item, ...patch } : item))
             const origin = (endpointBase || status.network?.urls?.[0] || `http://127.0.0.1:${status.service.port}/v1`).replace(/\/v1\/?$/, '')
             const address = `${origin}/clients/${entry.id}/v1`
+            const modelValue = entry.provider && entry.model ? JSON.stringify({ provider: entry.provider, model: entry.model }) : ''
+            const knownModel = (modelCatalog?.providers ?? []).some(provider =>
+              provider.id === entry.provider && provider.models?.some(model => model.id === entry.model))
+            const modelOptions = [
+              h('option', { key: 'empty', value: '' }, '跟随 DSH 默认'),
+              ...(modelValue && !knownModel
+                ? [h('option', { key: 'current', value: modelValue }, `${entry.provider} / ${entry.model}（当前）`)]
+                : []),
+              ...(modelCatalog?.providers ?? []).map(provider => h('optgroup', {
+                key: provider.id,
+                label: provider.name || provider.id,
+              }, ...(provider.models ?? []).map(model => h('option', {
+                key: `${provider.id}/${model.id}`,
+                value: JSON.stringify({ provider: provider.id, model: model.id }),
+                title: model.description || undefined,
+              }, model.name && model.name !== model.id ? `${model.name} · ${model.id}` : model.id)))),
+            ]
+            const modelHint = modelCatalog === null
+              ? '正在读取 DSH 模型列表…'
+              : modelCatalog.available === false
+                ? `无法读取 DSH 模型列表：${modelCatalog.error || '未知错误'}`
+                : modelCatalog.default
+                  ? `留空跟随 DSH 默认模型（${modelCatalog.default.provider} / ${modelCatalog.default.model}）。`
+                  : '留空跟随 DSH 当前默认模型。'
+            const knownWorkspace = (workspaceOptions?.workspaces ?? []).some(workspace => workspace.path === entry.cwd)
+            const workspaceHint = workspaceOptions === null
+              ? '正在读取 DSH 工作区…'
+              : workspaceOptions.available === false
+                ? `无法读取 DSH 工作区：${workspaceOptions.error || '未知错误'}`
+                : '留空跟随 DSH 默认工作区；新会话挂载到所选工作区。'
             return h('div', { className: 'bbh-card', key: index },
               h('div', { className: 'bbh-grid2' },
                 h(Field, { label: '显示名称' }, h('input', { className: 'bbh-input', value: entry.label, onChange: e => update({ label: e.target.value }) })),
@@ -701,6 +712,37 @@ window.__ModuleLoader__.load({
                 h(Field, { label: '默认任务类型' }, h('input', { className: 'bbh-input', value: entry.taskId, onChange: e => update({ taskId: e.target.value }) })),
                 h(Field, { label: '专属 Skill（可选）', hint: 'kebab-case 名称；修改后已有会话需重置才能切换。' },
                   h('input', { className: 'bbh-input', value: entry.skillId ?? '', onChange: e => update({ skillId: e.target.value.trim() }) }))),
+              h('div', { className: 'bbh-grid2' },
+                h(Field, { label: '模型', hint: modelHint },
+                  h('select', {
+                    className: 'bbh-select',
+                    value: modelValue,
+                    onChange: e => {
+                      if (!e.target.value) return update({ provider: '', model: '' })
+                      try {
+                        const selected = JSON.parse(e.target.value)
+                        update({ provider: selected.provider, model: selected.model })
+                      } catch {
+                        update({ provider: '', model: '' })
+                      }
+                    },
+                  }, ...modelOptions)),
+                agentPresetField({
+                  value: entry.agentPreset ?? '',
+                  onChange: agentPreset => update({ agentPreset }),
+                })),
+              h('div', { className: 'bbh-grid2' },
+                h(Field, { label: '工作区 cwd', hint: workspaceHint },
+                  h('select', {
+                    className: 'bbh-select',
+                    value: entry.cwd ?? '',
+                    onChange: e => update({ cwd: e.target.value }),
+                  },
+                  h('option', { value: '' }, '跟随 DSH 默认'),
+                  ...(entry.cwd && !knownWorkspace ? [h('option', { key: 'current', value: entry.cwd }, `${entry.cwd}（当前）`)] : []),
+                  ...(workspaceOptions?.workspaces ?? []).map(workspace => h('option', { key: workspace.path, value: workspace.path }, workspace.name || workspace.path)))),
+                h(Field, { label: 'max_tokens', hint: '留空使用模型 / DSH 默认；请求里的 max_tokens 优先。' },
+                  h('input', { className: 'bbh-input', type: 'number', min: 1, value: entry.maxTokens ?? '', onChange: e => update({ maxTokens: e.target.value }) }))),
               h(Check, { label: '启用此接入', checked: entry.enabled, onChange: enabled => update({ enabled }) }),
               h('input', { className: 'bbh-input', value: address, readOnly: true, 'aria-label': '插件API地址' }),
               h('div', { className: 'bbh-actions' },

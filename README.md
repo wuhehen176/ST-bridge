@@ -18,8 +18,9 @@ ST-bridge 是供柏宝绘、玉子手机、数据库等酒馆插件调用的本�
 默认所有材料保留，仅处理显式配置的本机桥接请求。
 
 玉子手机、数据库等插件建议使用各自的 `/clients/插件ID/v1` 地址，避免没有来源
-标识的请求共用一个 Agent。电脑设置页的「插件接入」可登记、停用和复制地址；
-配置步骤见 [插件专属地址与聊天隔离](CONTEXT-ADAPTER.md#插件专属地址与聊天隔离桥接-0110扩展-040)。
+标识的请求共用一个 Agent。电脑设置页的「插件接入」可登记、停用和复制地址，
+并为每个插件单独选择模型、Agent 预设、工作区和 `max_tokens`；留空跟随 DSH
+当前默认。配置步骤见 [插件专属地址与聊天隔离](CONTEXT-ADAPTER.md#插件专属地址与聊天隔离桥接-0110扩展-040)。
 
 > 更新本项目代码后，需要**完全退出并重启 DSH Desktop**才能加载新版本。
 > DSH Host 插件不会热替换已经加载的代码。vendor 和 `node_modules` 可能是
@@ -163,8 +164,9 @@ Cordis 配置而未保存到本地设置，先通过 DSH 桥接设置页保存�
 
 - **服务**：启停、host/port、Bearer token、CORS、`allowLegacyPlain`、
   请求超时、请求体上限。host/port 修改后点「保存并重启」。
-- **模型**：provider/model（留空跟随 DSH 当前默认；要填就同时填）、Agent 预设、
-  cwd、默认 `max_tokens`。修改只影响新创建/重新恢复的会话。`reasoning_effort`
+- **插件接入**：每个插件条目可单独选择模型（按 Provider 分组）、Agent 预设、
+  工作区 cwd 和默认 `max_tokens`；留空跟随 DSH 当前默认。修改只影响新创建/
+  重新恢复的会话，已有活动会话需重置绑定或新建会话。`reasoning_effort`
   只在模型支持该档位时传递；不支持会自动忽略，不会让整个回合报错。
 - **客户端**：按 `client_id + chat_id + task_id` 列出绑定，支持筛选、允许
   client_id 列表、查看当前固定规则、清除规则、重置绑定。重置不删除 DSH
@@ -752,9 +754,13 @@ plainCompat.taskId   = default
 
 | 字段 | 默认 | 说明 |
 | --- | --- | --- |
-| `provider` / `model` | 空 | 空表示使用 DSH 当前默认模型选择 |
-| `maxTokens` | 空 | 默认输出上限；请求里的 `max_tokens` 优先 |
-| `agentPreset` | `st-bridge` | Agent 预设 ID |
+| `provider` / `model` | 空 | 旧版全局字段，新会话不再读取；请在插件接入条目选择模型 |
+| `maxTokens` | 空 | 旧版全局字段，新会话不再读取；请在插件接入条目设置 |
+| `agentPreset` | `st-bridge` | 旧版兜底；新会话优先使用插件接入条目的预设，留空跟随 DSH 默认 |
+| `clientEndpoints[].provider` / `.model` | 空 | 插件专属模型，必须同时填写或同时留空 |
+| `clientEndpoints[].agentPreset` | 空 | 插件专属 Agent 预设，留空跟随 DSH 默认 |
+| `clientEndpoints[].cwd` | 空 | 插件专属工作区，留空使用 DSH 默认工作区 |
+| `clientEndpoints[].maxTokens` | 空 | 插件专属输出上限，请求里的 `max_tokens` 优先 |
 | `authToken` | 空 | 设置后要求 `Authorization: Bearer` 或 `x-api-key` |
 | `corsOrigins` | 未设置 | 额外允许的 Origin；默认允许本机与浏览器扩展 |
 | `allowRemote` | false | 允许绑定非 127.0.0.1 地址，不建议 |
@@ -776,7 +782,7 @@ plainCompat.taskId   = default
 | HTTP | code | 含义 |
 | --- | --- | --- |
 | 400 | `missing_chat_id` / `missing_request_id` | 缺少稳定标识 |
-| 400 | `model_not_found` | 只支持 `dsh-default`（或配置的模型 ID） |
+| 400 | `model_not_found` | 只支持 `dsh-default`，或当前插件接入条目选择的模型 ID |
 | 400 | `unsupported_content` | 消息含非文本片段，拒绝静默丢弃 |
 | 400 | `persistent_protocol_required` | 未带 `dsh_session` 且未开启旧模式 |
 | 400 | `invalid_client_id` / `invalid_task_id` | 插件身份或子任务标识不合法 |
