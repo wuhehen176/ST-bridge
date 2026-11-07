@@ -847,7 +847,7 @@ git config user.email "you@example.com"
 
 ## blocked 与归档会话
 
-桥接会在恢复会话时检查 DSH 的归档状态。已归档会话返回 HTTP 409、`error.code=session_archived`；恢复旧会话或明确清除绑定新建后再提交。桥接不会自动解除归档或绕过归档新建会话。
+桥接会在恢复会话时检查 DSH 的归档状态。默认返回 HTTP 409、`error.code=session_archived`，可恢复旧会话或清除绑定后新建。配置 `sessionOnArchived: recreate` 时，生成请求会自动新建替代会话；0.16.3 起，`sync_rules` 协议同步也遵循该配置，覆盖专属模式显式携带旧 session_id 和从当前绑定复用旧会话两条路径。替代会话创建成功后才更新绑定并记录旧会话，固定协议重新载入；旧会话保持归档。此兜底不处理其他类型的 409 冲突。
 
 DSH 在模型调用前拒绝请求时，日志可能只有 inbox 领取记录和 `turn/end: blocked`，没有 `user/message`。桥接会按确切 request ID 回查被领取的 inbox 消息，将该请求标记为 error 并返回 `agent_turn_blocked`，不再等待整个超时时间。重启后重试旧 pending 请求时也使用同一恢复逻辑；不匹配的、尚未领取的和取消的消息不会被当成本请求的结果。
 

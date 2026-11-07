@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import { BridgeEngine } from '../lib/engine.js'
+import { BridgeError } from '../lib/errors.js'
 import { createBridgeServer } from '../lib/server.js'
 import { BridgeStore } from '../lib/store.js'
 import { PairingService } from '../lib/pairing.js'
@@ -1700,4 +1701,91 @@ test('user image parts are admitted and passed to the DSH Agent', async () => {
     assert.ok(content.some(part => part.type === 'image'))
     assert.ok(content.some(part => part.type === 'text' && part.text.includes('see image')))
   } finally { await app.close() }
+})
+
+
+for (const [mode,explicit] of [['dedicated',true],['dedicated',false],[undefined,true]]) {
+  test(`sync_rules recreates archived ${mode ?? 'ordinary'} sessions, explicit=${explicit}`,async()=>{
+    const app=await start({}, {sessionOnArchived:'recreate'})
+    try {
+      const sync=(id,content,sessionId)=>({model:'dsh-default',messages:[{role:'system',content}],
+        dsh_session:dsh({chat_id:'archive-sync',request_id:id,action:'sync_rules',
+          ...(mode ? {session_mode:mode} : {}),...(sessionId ? {session_id:sessionId} : {}),
+          fixed_message_count:1,fixed_message_types:['spec']})})
+      const first=await postDsh(app.base,sync('archive-initial','OLD_RULES'))
+      assert.equal(first.response.status,200,first.text)
+      const oldId=first.json.dsh_session.session_id,oldAgent=app.sessions.get(oldId)
+      const oldEvents=structuredClone(oldAgent.events)
+      app.host.services.workspaceRegistry.archivedSessionIds=[oldId]
+      const request=sync('archive-recover','NEW_RULES',explicit ? oldId : undefined)
+      const repaired=await postDsh(app.base,request)
+      assert.equal(repaired.response.status,200,repaired.text)
+      const newId=repaired.json.dsh_session.session_id
+      assert.notEqual(newId,oldId);assert.equal(app.sessions.size,2)
+      assert.deepEqual(app.host.services.workspaceRegistry.archivedSessionIds,[oldId])
+      assert.deepEqual(oldAgent.events,oldEvents)
+      assert.equal(app.sessions.get(newId).prompts.length,0)
+      assert.equal(app.engine.runtimeFor(newId).fixedRules[0].text,'NEW_RULES')
+      const chat=Object.values(app.engine.store.data.chats).find(entry=>entry.chatId==='archive-sync')
+      assert.equal(chat.sessionId,newId)
+      assert.ok(chat.previousSessions.some(entry=>entry.sessionId===oldId && entry.reason==='sync_rules'))
+      const retried=await postDsh(app.base,request)
+      assert.equal(retried.response.status,200,retried.text)
+      assert.equal(retried.json.dsh_session.session_id,newId)
+      assert.equal(app.sessions.size,2)
+      const generated=await postDsh(app.base,{model:'dsh-default',messages:[{role:'user',content:'CURRENT_STORY'}],
+        dsh_session:{...request.dsh_session,request_id:'archive-generate',action:'generate',session_id:newId,fixed_message_count:0,fixed_message_types:[]}})
+      assert.equal(generated.response.status,200,generated.text)
+      assert.equal(generated.json.dsh_session.session_id,newId)
+      assert.equal(app.sessions.get(newId).prompts.length,1)
+    } finally {await app.close()}
+  })
+}
+
+test('sync_rules keeps archive rejection when automatic recreation is disabled',async()=>{
+  const app=await start({}, {sessionOnArchived:'error'})
+  try {
+    const request={model:'dsh-default',messages:[{role:'system',content:'RULES'}],dsh_session:dsh({chat_id:'archive-deny',request_id:'initial',action:'sync_rules',session_mode:'dedicated',fixed_message_count:1,fixed_message_types:['spec']})}
+    const first=await postDsh(app.base,request),oldId=first.json.dsh_session.session_id
+    app.host.services.workspaceRegistry.archivedSessionIds=[oldId]
+    const result=await postDsh(app.base,{...request,dsh_session:{...request.dsh_session,request_id:'denied',session_id:oldId}})
+    assert.equal(result.response.status,409,result.text);assert.equal(result.json.error.code,'session_archived')
+    assert.equal(app.sessions.size,1)
+    assert.equal(Object.values(app.engine.store.data.chats)[0].sessionId,oldId)
+  } finally {await app.close()}
+})
+
+test('failed archived sync replacement preserves the previous binding and fixed rules',async()=>{
+  const app=await start({}, {sessionOnArchived:'recreate'})
+  try {
+    const request={model:'dsh-default',messages:[{role:'system',content:'ORIGINAL_RULES'}],dsh_session:dsh({chat_id:'archive-failed',request_id:'initial',action:'sync_rules',session_mode:'dedicated',fixed_message_count:1,fixed_message_types:['spec']})}
+    const first=await postDsh(app.base,request),oldId=first.json.dsh_session.session_id
+    const before=structuredClone(Object.values(app.engine.store.data.chats)[0])
+    app.host.services.workspaceRegistry.archivedSessionIds=[oldId]
+    app.host.agents.create=async()=>{throw new Error('simulated create failure')}
+    const result=await postDsh(app.base,{...request,messages:[{role:'system',content:'REPLACEMENT_RULES'}],dsh_session:{...request.dsh_session,request_id:'failed',session_id:oldId}})
+    assert.equal(result.response.status,500,result.text)
+    assert.equal(result.json.error.code,'session_create_failed')
+    const {requests,...after}=Object.values(app.engine.store.data.chats)[0]
+    const {requests:previousRequests,...unchanged}=before
+    assert.deepEqual(after,unchanged)
+    assert.equal(requests.failed.errorCode,'session_create_failed')
+    assert.equal(app.sessions.size,1)
+  } finally {await app.close()}
+})
+
+
+test('sync_rules does not recreate a session for an unrelated 409 conflict',async()=>{
+  const app=await start({}, {sessionOnArchived:'recreate'})
+  try {
+    const request={model:'dsh-default',messages:[{role:'system',content:'RULES'}],dsh_session:dsh({chat_id:'other-conflict',request_id:'initial',action:'sync_rules',session_mode:'dedicated',fixed_message_count:1,fixed_message_types:['spec']})}
+    const first=await postDsh(app.base,request)
+    assert.equal(first.response.status,200,first.text)
+    const oldId=first.json.dsh_session.session_id
+    app.engine.ensureSession=async()=>{throw new BridgeError(409,'session_unavailable','simulated unrelated conflict')}
+    const result=await postDsh(app.base,{...request,dsh_session:{...request.dsh_session,request_id:'conflict',session_id:oldId}})
+    assert.equal(result.response.status,409,result.text);assert.equal(result.json.error.code,'session_unavailable')
+    assert.equal(app.sessions.size,1)
+    assert.equal(Object.values(app.engine.store.data.chats)[0].sessionId,oldId)
+  } finally {await app.close()}
 })
