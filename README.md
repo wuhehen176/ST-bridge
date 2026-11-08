@@ -851,6 +851,8 @@ git config user.email "you@example.com"
 
 DSH 在模型调用前拒绝请求时，日志可能只有 inbox 领取记录和 `turn/end: blocked`，没有 `user/message`。桥接会按确切 request ID 回查被领取的 inbox 消息，将该请求标记为 error 并返回 `agent_turn_blocked`，不再等待整个超时时间。重启后重试旧 pending 请求时也使用同一恢复逻辑；不匹配的、尚未领取的和取消的消息不会被当成本请求的结果。
 
+0.16.4 起，DSH 在领取前取消 inbox 消息时，桥接按 request ID 返回 HTTP 499、`agent_request_canceled`，及时结束等待并释放同一会话的队列，后续 `sync_rules` 不再被该请求拖到超时。取消的请求不会自动重发或借用其他回合的回答；同一消息移到另一个 inbox 后继续执行时，仍等待自己的结果。
+
 HTTP 400 `persistent_protocol_required` 是另一类入口错误：请求未携带 `dsh_session`，尚未进入 Agent 回合。应修正调用方的协议配置；它不等于 blocked。
 
 ## 测试

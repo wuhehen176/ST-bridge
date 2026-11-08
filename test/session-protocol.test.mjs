@@ -203,6 +203,52 @@ function appendBlockedClaim(agent, requestId) {
   agent.events.push({ type: 'turn/end', data: { turn, reason: { kind: 'blocked' } } })
 }
 
+test('canceled queued generation releases a following protocol sync without resubmitting', async () => {
+  const app = await start({}, { transientRetry: 1 })
+  try {
+    const initial = await postDsh(app.base, blockedRequest('cancel-queue', 'initial'))
+    const id = initial.json.dsh_session.session_id
+    const agent = app.sessions.get(id)
+    let accepted
+    const ready = new Promise(resolve => { accepted = resolve })
+    let submissions = 0
+    agent.followup = message => {
+      submissions++
+      agent.events.push({ type: 'agent/inbox/spliced', data: {
+        target: 'next-turn', start: 0, inserted: [message],
+      } })
+      accepted()
+    }
+    const generating = postDsh(app.base, blockedRequest('cancel-queue', 'canceled', id))
+    await ready
+    const syncing = postDsh(app.base, {
+      model: 'dsh-default', messages: fixedMessages().slice(0, 2),
+      dsh_session: dsh({ chat_id: 'cancel-queue', request_id: 'sync-after-cancel',
+        action: 'sync_rules', session_id: id, fixed_message_count: 2,
+        fixed_message_types: ['prefix', 'spec'] }),
+    })
+    const deadline = Date.now() + 1000
+    while (app.engine.pending.size < 2 && Date.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, 5))
+    }
+    assert.equal(app.engine.pending.size, 2, 'sync is queued behind the running request')
+    agent.events.push({ type: 'agent/inbox/spliced', data: {
+      target: 'next-turn', start: 0, removedCount: 1, inserted: [], outcome: 'canceled',
+    } })
+    const result = await generating
+    assert.equal(result.response.status, 499, result.text)
+    assert.equal(result.json.error.code, 'agent_request_canceled')
+    const synced = await syncing
+    assert.equal(synced.response.status, 200, synced.text)
+    assert.equal(synced.json.dsh_session.session_id, id)
+    assert.equal(submissions, 1)
+    const retried = await postDsh(app.base, blockedRequest('cancel-queue', 'canceled', id))
+    assert.equal(retried.response.status, 499)
+    assert.equal(submissions, 1)
+    assert.equal(app.engine.queues.size, 0)
+  } finally { await app.close() }
+})
+
 test('archived session returns 409 without submitting or creating another session', async () => {
   const app = await start()
   try {

@@ -239,14 +239,39 @@ test('recoverTurn matches a rejected claimed inbox request without user/message'
   assert.equal(result.usage, undefined)
 })
 
-test('inbox recovery does not attribute other or canceled requests', () => {
+test('inbox recovery distinguishes canceled requests from other and incomplete requests', () => {
   assert.equal(recoverTurn(rejectedInboxTurn('other'), 'req-blocked'), undefined)
   const canceled = rejectedInboxTurn()
   canceled[2].data.outcome = 'canceled'
-  assert.equal(recoverTurn(canceled, 'req-blocked'), undefined)
+  assert.equal(recoverTurn(canceled, 'req-blocked').code, 'agent_request_canceled')
   const incomplete = rejectedInboxTurn()
   incomplete.pop()
   assert.equal(recoverTurn(incomplete, 'req-blocked'), undefined)
+})
+
+test('canceled inbox request settles without a turn and does not borrow a later answer', () => {
+  const events = [
+    event('agent/inbox/spliced', { target: 'next-turn', start: 0,
+      inserted: [{ id: 'queued', source: { rpcId: 'req-canceled' } }] }),
+    event('agent/inbox/spliced', { target: 'next-turn', start: 0, removedCount: 1,
+      inserted: [], outcome: 'canceled' }),
+    ...turnLog({ requestId: 'different-request' }),
+  ]
+  assert.equal(recoverTurn(events, 'req-canceled').code, 'agent_request_canceled')
+  assert.equal(recoverTurn(events, 'unrelated'), undefined)
+})
+
+test('moving a canceled inbox item to next-step still waits for its own completed turn', () => {
+  const message = { id: 'moved', source: { rpcId: 'req-moved' } }
+  const events = [
+    event('agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [message] }),
+    event('agent/inbox/spliced', { target: 'next-turn', start: 0, removedCount: 1,
+      inserted: [], outcome: 'canceled' }),
+    event('agent/inbox/spliced', { target: 'next-step', start: 0, inserted: [message] }),
+  ]
+  assert.equal(recoverTurn(events, 'req-moved'), undefined)
+  events.push(...turnLog({ requestId: 'req-moved', answer: 'moved answer' }))
+  assert.equal(recoverTurn(events, 'req-moved').answer, 'moved answer')
 })
 
 test('inbox recovery respects queue positions and exact rpc IDs', () => {
