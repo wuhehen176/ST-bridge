@@ -13,7 +13,6 @@ const HARD_BYTES = 50 * 1024
 // Existing files above HARD_BYTES are allowed at their current size only.
 // Shrinking them is welcome; growing them costs a deliberate baseline bump.
 const BASELINE = new Map([
-  ['lib/engine.js', 93844],
   ['test/session-protocol.test.mjs', 93231],
   ['client.js', 62440],
 ])

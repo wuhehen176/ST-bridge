@@ -64,6 +64,6 @@
   "scripts": {
     "deploy:check": "node deploy.mjs --check",
     "test": "node --test test/*.test.mjs",
-    "check": "node --check index.js && node --check client.js && node --check lib/engine.js && node --check lib/server.js && node --check lib/panel.js"
+    "check": "node --check index.js && node --check client.js && node --check lib/engine.js && node --check lib/engine/index.js && node --check lib/engine/helpers.js && node --check lib/engine/session-methods.js && node --check lib/engine/protocol-methods.js && node --check lib/engine/dsh-methods.js && node --check lib/server.js && node --check lib/panel.js"
   }
 }

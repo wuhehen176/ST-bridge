@@ -29,7 +29,7 @@ node deploy.mjs --verify-running
 | --- | --- |
 | `index.js` | 插件入口、配置归一化、路由注册、面板 RPC |
 | `lib/server.js` | HTTP 服务、鉴权、CORS、路径与模型白名单 |
-| `lib/engine.js` | DSH 会话、回合、固定规则、快照、重试与回退 |
+| `lib/engine/` | DSH 会话、回合、固定规则、快照、重试与回退（`index.js` 类壳，`*-methods.js` 分组） |
 | `lib/snapshot-diff.js` | 块级快照裁剪、`STB-KEEP` 范围 |
 | `lib/system-snapshot.js` | 系统段快照模式（`native`/`filled`/`empty`） |
 | `lib/layout-atlas.js` | 版式图册 hash 与前缀注入 |

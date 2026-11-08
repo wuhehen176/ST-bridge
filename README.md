@@ -51,7 +51,7 @@ ST-bridge 是供柏宝绘、玉子手机、数据库等酒馆插件调用的本�
 | 文件 | 作用 |
 | --- | --- |
 | `index.js` | DSH 插件入口，读取配置、启动 43121 端口 |
-| `lib/engine.js` | 会话创建/恢复、上下文分类、发送、等待、分支、幂等 |
+| `lib/engine/` | 会话创建/恢复、上下文分类、发送、等待、分支、幂等（`index.js` 类壳，`*-methods.js` 分组） |
 | `lib/context.js` | 消息规范化、前缀 diff、首次/追加/重建提示词 |
 | `lib/session-protocol.js` | `dsh_session` 校验、固定规则格式化、稳定 session ID、采样参数 |
 | `lib/turn.js` | 从 DSH 事件日志提取最终回答与 usage |
