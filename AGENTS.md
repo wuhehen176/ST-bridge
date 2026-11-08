@@ -13,8 +13,8 @@
 
 ```bash
 npm test
-node --check index.js
-node --check client.js
+npm run build:client
+npm run check
 node tools/check-file-size.mjs --all
 node deploy.mjs --check
 node deploy.mjs --apply          # 必须完全退出 DSH 后运行
@@ -37,7 +37,8 @@ node deploy.mjs --verify-running
 | `lib/client-endpoints.js` | 每插件端点、模型/预设/工作区/maxtokens 覆盖 |
 | `lib/pairing.js` | 配对码、设备 token、审批与吊销 |
 | `lib/store.js` | `state.json` 持久化 |
-| `client.js` | 设置面板（浏览器侧，无构建步骤） |
+| `client/` | 设置面板源码（`index.js` 入口、`panel.js` 状态、`endpoints.js` 插件页、`helpers.js`、`theme.js`） |
+| `client.js` | 由 `npm run build:client` 生成的浏览器 bundle，不要手改 |
 | `lib/defaults.js` | 端口、清理标签、系统快照模式的唯一默认值来源 |
 
 ## 不可破坏的约束
@@ -56,7 +57,7 @@ node deploy.mjs --verify-running
 - 新行为必须同时补测试：协议/HTTP 改动放 `test/session-protocol.test.mjs`，引擎回退放 `test/engine-setup.test.mjs`，面板放 `test/panel.test.mjs`。
 - 提交前跑全量 `npm test`；发布版本时同步 `package.json`、`README.md` 的版本说明。
 - 部署前确认 DSH 已完全退出；运行中只允许 `--check`，不要强推。
-- 本地面板改动没有 HMR；改 `client.js` 后刷新设置页，改宿主代码后重新部署并重启 DSH。
+- 本地面板改动没有 HMR；改 `client/` 后先 `npm run build:client`，再刷新设置页；改宿主代码后重新部署并重启 DSH。
 
 ## 文档
 

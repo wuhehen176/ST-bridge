@@ -59,7 +59,8 @@ ST-bridge 是供柏宝绘、玉子手机、数据库等酒馆插件调用的本�
 | `lib/server.js` | OpenAI 兼容 HTTP/SSE 层 |
 | `lib/external-tools.js` | 客户端工具注册、异步等待回填、会话隔离与幂等 |
 | `lib/panel.js` | DSH 设置页 Host RPC、设置持久化、scope/规则/危险操作 |
-| `client.js` | DSH 设置页浏览器半边 |
+| `client/` | DSH 设置页源码（入口、面板、插件页、helpers、theme） |
+| `client.js` | 由 `npm run build:client` 生成的浏览器 bundle |
 | `install.mjs` | 安装到当前 DSH profile |
 | `deploy.mjs` | 更新前检查、备份同步与重启后的运行指纹检查 |
 | `lib/build-info.js` | 捕获本次进程加载的版本、入口与 SHA-256 指纹 |

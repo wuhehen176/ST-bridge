@@ -33,6 +33,7 @@
   "files": [
     "index.js",
     "client.js",
+    "client",
     "lib",
     "assets",
     "cordis.patch.yml",
@@ -63,7 +64,8 @@
   },
   "scripts": {
     "deploy:check": "node deploy.mjs --check",
+    "build:client": "node tools/build-client.mjs",
     "test": "node --test test/*.test.mjs",
-    "check": "node --check index.js && node --check client.js && node --check lib/engine.js && node --check lib/engine/index.js && node --check lib/engine/helpers.js && node --check lib/engine/session-methods.js && node --check lib/engine/protocol-methods.js && node --check lib/engine/dsh-methods.js && node --check lib/server.js && node --check lib/panel.js"
+    "check": "node tools/build-client.mjs --check && node --check client.js && node --check client/index.js && node --check client/panel.js && node --check client/endpoints.js && node --check client/helpers.js && node --check client/theme.js && node --check index.js && node --check lib/engine.js && node --check lib/engine/index.js && node --check lib/engine/helpers.js && node --check lib/engine/session-methods.js && node --check lib/engine/protocol-methods.js && node --check lib/engine/dsh-methods.js && node --check lib/server.js && node --check lib/panel.js"
   }
 }
