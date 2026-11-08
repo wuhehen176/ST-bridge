@@ -86,6 +86,8 @@ test('PanelController saves, redacts token, and reloads persisted settings', () 
     assert.equal(config.authToken, 'secret-token')
     assert.equal(panel.status().service.authTokenSet, true)
     assert.equal(panel.status().service.clientEndpoints[0].id, 'phone-test')
+    assert.deepEqual(panel.status().service.defaults.inputCleanupTags, ['bbi_image'])
+    assert.deepEqual(panel.status().service.systemSnapshot.modes, ['native', 'filled', 'empty'])
 
     const file = join(dir, 'settings.json')
     assert.equal(existsSync(file), true)

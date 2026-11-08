@@ -7,6 +7,7 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { createConnection } from 'node:net'
 import { fileURLToPath } from 'node:url'
 import { buildInfo, packageFiles, PACKAGE_ROOT } from './lib/build-info.js'
+import { DEFAULT_PORT } from './lib/defaults.js'
 
 const sha = bytes => createHash('sha256').update(bytes).digest('hex')
 const same = (a, b) => a === null || b === null ? a === b : a.equals(b)
@@ -60,7 +61,7 @@ async function portOpen(port) {
   })
 }
 
-export async function assertStopped(port = 43121) {
+export async function assertStopped(port = DEFAULT_PORT) {
   if (process.platform !== 'win32') throw new Error('自动部署运行检查目前仅支持 Windows；只读 --check 可跨平台使用')
   const running = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
     "$ErrorActionPreference='Stop'; @(Get-Process -Name 'DSH Desktop' -ErrorAction SilentlyContinue).Count"], { encoding: 'utf8', windowsHide: true }).trim()
@@ -68,7 +69,7 @@ export async function assertStopped(port = 43121) {
   if (Number(running) > 0 || await portOpen(port)) throw new Error('DSH Desktop 或桥接仍在运行，请先从托盘完全退出；未改动部署文件')
 }
 
-export async function applyDeployment(plan, { stopCheck = assertStopped, port = 43121, write = writeFileSync } = {}) {
+export async function applyDeployment(plan, { stopCheck = assertStopped, port = DEFAULT_PORT, write = writeFileSync } = {}) {
   await stopCheck(port)
   // Syntax-check the captured source bytes, not a changing live file.
   for (const [name, bytes] of plan.files) {
@@ -118,7 +119,7 @@ export async function applyDeployment(plan, { stopCheck = assertStopped, port = 
   return { changed: changes.length, backup }
 }
 
-export async function verifyRunning(build, { port = 43121, authToken = '' } = {}) {
+export async function verifyRunning(build, { port = DEFAULT_PORT, authToken = '' } = {}) {
   const response = await fetch(`http://127.0.0.1:${port}/health`, { headers: authToken ? { authorization: `Bearer ${authToken}` } : {}, redirect: 'error', signal: AbortSignal.timeout(5000) })
   if (!response.ok) throw new Error(`运行检查失败: HTTP ${response.status}；检查端口及本地 settings 中的令牌`)
   const health = await response.json()
@@ -136,10 +137,10 @@ async function main() {
       if (modeSet) throw new Error('每次只选择一种操作')
       options.mode = arg; modeSet = true
     } else if (['--profile', '--settings', '--port'].includes(arg) && args[i + 1] && !args[i + 1].startsWith('--')) options[arg.slice(2)] = args[++i]
-    else throw new Error('用法: node deploy.mjs [--check|--apply|--verify-running] [--profile 路径] [--settings 路径] [--port 43121]')
+    else throw new Error(`用法: node deploy.mjs [--check|--apply|--verify-running] [--profile 路径] [--settings 路径] [--port ${DEFAULT_PORT}]`)
   }
   const settings = existsSync(options.settings) ? JSON.parse(readFileSync(options.settings, 'utf8')) : {}
-  const port = Number(options.port ?? settings.port ?? 43121)
+  const port = Number(options.port ?? settings.port ?? DEFAULT_PORT)
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('port 必须为 1–65535')
   const plan = inspectDeployment(options)
   console.log(`源码 v${plan.build.version} sha256=${plan.build.revision}\nNode 解析入口: ${plan.entry}`)

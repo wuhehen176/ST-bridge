@@ -25,13 +25,14 @@ import {
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { DEFAULT_PORT } from './lib/defaults.js'
 
 const PROJECT = dirname(fileURLToPath(import.meta.url))
 const START = '# >>> st-bridge (managed by install.mjs)'
 const END = '# <<< st-bridge'
 
 function parseArgs(argv) {
-  const args = { port: 43121, cwd: 'D:\\AIGC\\MOSS', token: '', uninstall: false }
+  const args = { port: DEFAULT_PORT, cwd: 'D:\\AIGC\\MOSS', token: '', uninstall: false }
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
     if (arg === '--uninstall') args.uninstall = true
@@ -154,7 +155,7 @@ function unlinkPackage(profile) {
 function main() {
   const args = parseArgs(process.argv.slice(2))
   if (args.help) {
-    console.log('用法: node install.mjs [--cwd D:\\AIGC\\MOSS] [--port 43121] [--token TOKEN] [--profile DIR] [--uninstall]')
+    console.log(`用法: node install.mjs [--cwd D:\\AIGC\\MOSS] [--port ${DEFAULT_PORT}] [--token TOKEN] [--profile DIR] [--uninstall]`)
     return
   }
   const profile = profileDir(args)

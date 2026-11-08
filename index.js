@@ -17,6 +17,7 @@ import { BridgeStore } from './lib/store.js'
 import { normalizeSnapshotMarker } from './lib/snapshot-diff.js'
 import { normalizeSystemSnapshotMode } from './lib/system-snapshot.js'
 import { clientEndpoints } from './lib/client-endpoints.js'
+import { DEFAULT_INPUT_CLEANUP_TAGS, DEFAULT_PORT } from './lib/defaults.js'
 import { clampInteger, ensureDir } from './lib/util.js'
 
 export const name = 'ST-bridge'
@@ -44,7 +45,7 @@ function normalizeConfig(raw) {
     : ''
   return {
     host: LOCAL_HOSTS.has(host) || config.allowRemote === true ? host : '127.0.0.1',
-    port: clampInteger(config.port, 0, 65535) ?? 43121,
+    port: clampInteger(config.port, 0, 65535) ?? DEFAULT_PORT,
     stateDir: typeof config.stateDir === 'string' && config.stateDir.trim() !== ''
       ? config.stateDir
       : join(dshHome, 'st-bridge'),
@@ -93,7 +94,7 @@ function normalizeConfig(raw) {
       enabled: config.inputCleanup?.enabled !== false,
       tags: Array.isArray(config.inputCleanup?.tags) && config.inputCleanup.tags.length > 0
         ? config.inputCleanup.tags.map(String)
-        : ['bbi_image'],
+        : [...DEFAULT_INPUT_CLEANUP_TAGS],
     },
     systemSnapshot: {
       mode: normalizeSystemSnapshotMode(config.systemSnapshot?.mode),
