@@ -85,7 +85,14 @@ function renderEndpoints(c) {
             ...(workspaceOptions?.workspaces ?? []).map(workspace => h('option', { key: workspace.path, value: workspace.path }, workspace.name || workspace.path)))),
           h(Field, { label: 'max_tokens', hint: '留空使用模型 / DSH 默认；请求里的 max_tokens 优先。' },
             h('input', { className: 'bbh-input', type: 'number', min: 1, value: entry.maxTokens ?? '', onChange: e => update({ maxTokens: e.target.value }) }))),
-        h(Check, { label: '启用此接入', checked: entry.enabled, onChange: enabled => update({ enabled }) }),
+        h('div', { className: 'bbh-check-row' },
+          h(Check, { label: '启用此接入', checked: entry.enabled, onChange: enabled => update({ enabled }) }),
+          h(Check, {
+            label: '持续会话',
+            hint: '开启后该插件的所有聊天共用一个 DSH 窗口；关闭后各聊天从新会话开始。',
+            checked: entry.persistentSession === true,
+            onChange: persistentSession => update({ persistentSession }),
+          })),
         h('input', { className: 'bbh-input', value: address, readOnly: true, 'aria-label': '插件API地址' }),
         h('div', { className: 'bbh-actions' },
           h('button', { type: 'button', className: 'bbh-btn secondary', onClick: async () => {
@@ -96,7 +103,7 @@ function renderEndpoints(c) {
       )
     }),
     h('div', { className: 'bbh-actions' },
-      h('button', { type: 'button', className: 'bbh-btn secondary', onClick: () => setField('clientEndpoints', [...form.clientEndpoints, { id: '', label: '', taskId: 'default', skillId: '', enabled: true }]) }, '新增插件接入'),
+      h('button', { type: 'button', className: 'bbh-btn secondary', onClick: () => setField('clientEndpoints', [...form.clientEndpoints, { id: '', label: '', taskId: 'default', skillId: '', enabled: true, persistentSession: false }]) }, '新增插件接入'),
       h('button', { type: 'button', className: 'bbh-btn', disabled: busy, onClick: () => void save() }, busy ? '保存中…' : '保存插件接入')),
     h('p', { className: 'bbh-note' }, '停用或删除只影响该地址的新请求，不删除Agent历史、不取消正在执行的任务。若设置了允许client_id列表，还需允许相应插件ID。'),
   )

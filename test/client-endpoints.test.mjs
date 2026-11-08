@@ -99,6 +99,14 @@ test('endpoint registry carries per-plugin model, preset, cwd and token override
   assert.equal('maxTokens' in blank, false)
 })
 
+test('endpoint registry carries persistent-session opt-in', () => {
+  const entry = { id: 'shared', label: '共享窗口', taskId: 'shared', enabled: true, persistentSession: true }
+  assert.deepEqual(clientEndpoints([entry]), [entry])
+  const [off] = clientEndpoints([{ ...entry, persistentSession: false }])
+  assert.equal('persistentSession' in off, false)
+  assert.throws(() => clientEndpoints([{ ...entry, persistentSession: 'yes' }]), /持续会话状态须为布尔值/)
+})
+
 test('route identity rejects conflicting declarations without erasing existing protocol fields', () => {
   const entry = routes[0]
   const existing = { protocol_version: 1, client_id: entry.id, chat_id: 'chat', session_id: 'keep', request_id: 'same-retry', fixed_message_count: 1, fixed_message_types: ['contract'], action: 'sync_rules' }

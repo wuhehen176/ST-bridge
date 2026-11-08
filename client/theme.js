@@ -20,6 +20,7 @@ const CSS = `
 .bbh-input, .bbh-textarea, .bbh-select { width:100%; min-height:34px; box-sizing:border-box; font:inherit; color:inherit; background:var(--bbh-fill); border:1px solid var(--bbh-line); border-radius:8px; padding:7px 9px; outline:none; }
 .bbh-input:focus, .bbh-textarea:focus, .bbh-select:focus { border-color:var(--bbh-accent); }
 .bbh-textarea { min-height:80px; resize:vertical; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; }
+.bbh-check-row { display:flex; align-items:flex-start; gap:18px; flex-wrap:wrap; }
 .bbh-check { display:flex; align-items:flex-start; gap:8px; font-size:13px; cursor:pointer; }
 .bbh-check input { margin-top:3px; accent-color:var(--bbh-accent); }
 .bbh-check span { display:grid; gap:1px; }

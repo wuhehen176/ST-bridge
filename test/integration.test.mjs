@@ -110,9 +110,9 @@ function config(cwd) {
   }
 }
 
-async function start() {
+async function start(overrides = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'bbh-bridge-'))
-  const cfg = config(dir)
+  const cfg = { ...config(dir), ...overrides }
   const store = new BridgeStore(join(dir, 'state.json'))
   const log = (line) => {
     if (process.env.BBH_DEBUG) console.error(line)
@@ -326,6 +326,108 @@ test('stream=true returns OpenAI-style SSE chunks and [DONE]', async () => {
     assert.match(text, /"delta":\{"content":"ANSWER\(/)
     assert.match(text, /"usage":\{"prompt_tokens":11/)
     assert.match(text, /data: \[DONE\]/)
+  } finally {
+    await app.close()
+  }
+})
+
+test('persistent plugin sessions share one window across chats and reset all chats', async () => {
+  const app = await start({
+    clientEndpoints: [{ id: 'yuzi-phone', label: '玉子手机', taskId: 'phone', enabled: true, persistentSession: true }],
+  })
+  try {
+    const request = (chat, requestId, sessionId) => post(app.base, '/clients/yuzi-phone/v1/chat/completions', {
+      model: 'dsh-default',
+      messages: [{ role: 'user', content: `shared ${chat} ${requestId}` }],
+      dsh_session: {
+        protocol_version: 1, client_id: 'yuzi-phone', chat_id: chat, request_id: requestId,
+        fixed_message_count: 0, fixed_message_types: [], ...(sessionId ? { session_id: sessionId } : {}),
+      },
+    })
+    const first = await request('chat-a', 'a1')
+    const second = await request('chat-b', 'b1')
+    assert.equal(first.response.status, 200, JSON.stringify(first.json))
+    assert.equal(second.response.status, 200, JSON.stringify(second.json))
+    const sharedSession = first.json.dsh_session.session_id
+    assert.equal(second.json.dsh_session.session_id, sharedSession)
+    assert.equal(app.store.listChats().length, 1)
+
+    const stale = await request('chat-a', 'a2', 'session-stale')
+    assert.equal(stale.response.status, 200, JSON.stringify(stale.json))
+    assert.equal(stale.json.dsh_session.session_id, sharedSession)
+
+    const reset = await post(app.base, '/v1/bridge/reset', { client_id: 'yuzi-phone', chat_id: 'chat-a' })
+    assert.equal(reset.response.status, 200, JSON.stringify(reset.json))
+    assert.equal(reset.json.removed, true)
+    const afterReset = await request('chat-b', 'b2')
+    assert.equal(afterReset.response.status, 200, JSON.stringify(afterReset.json))
+    assert.notEqual(afterReset.json.dsh_session.session_id, sharedSession)
+  } finally {
+    await app.close()
+  }
+})
+
+test('persistent plugin sessions keep snapshot state per chat', async () => {
+  const app = await start({
+    clientEndpoints: [{ id: 'yuzi-phone', label: '玉子手机', taskId: 'phone', enabled: true, persistentSession: true }],
+    snapshotDiff: { enabled: true, mode: 'auto' },
+  })
+  try {
+    const messages = []
+    const request = async (requestId, text) => {
+      messages.push({ role: 'user', content: text })
+      const result = await post(app.base, '/clients/yuzi-phone/v1/chat/completions', {
+        model: 'dsh-default', messages,
+        dsh_session: {
+          protocol_version: 1, client_id: 'yuzi-phone', chat_id: 'chat-a', request_id: requestId,
+          fixed_message_count: 0, fixed_message_types: [],
+        },
+      })
+      assert.equal(result.response.status, 200, JSON.stringify(result.json))
+      messages.push({ role: 'assistant', content: result.json.choices[0].message.content })
+      return result
+    }
+    const first = await request('a1', 'one')
+    const second = await request('a2', 'two')
+    const third = await request('a3', 'three')
+    assert.equal(first.json.bridge.dynamic_diff.status, 'shared-first-turns')
+    assert.equal(second.json.bridge.dynamic_diff.status, 'shared-first-turns')
+    assert.notEqual(third.json.bridge.dynamic_diff.status, 'shared-first-turns')
+    const shared = app.store.getChat('shared:yuzi-phone')
+    assert.equal(shared.sharedChats['chat-a'].turns, 3)
+  } finally {
+    await app.close()
+  }
+})
+
+test('latest sync_rules overwrites the shared window rules', async () => {
+  const app = await start({
+    clientEndpoints: [{ id: 'yuzi-phone', label: '玉子手机', taskId: 'phone', enabled: true, persistentSession: true }],
+  })
+  try {
+    const sync = (chat, requestId, text) => post(app.base, '/clients/yuzi-phone/v1/chat/completions', {
+      model: 'dsh-default',
+      messages: [{ role: 'system', content: text }],
+      dsh_session: {
+        protocol_version: 1, client_id: 'yuzi-phone', chat_id: chat, request_id: requestId,
+        action: 'sync_rules', fixed_message_count: 1, fixed_message_types: ['prefix'],
+      },
+    })
+    const a = await sync('chat-a', 'sync-a', 'RULES-A')
+    const b = await sync('chat-b', 'sync-b', 'RULES-B')
+    assert.equal(a.response.status, 200, JSON.stringify(a.json))
+    assert.equal(b.response.status, 200, JSON.stringify(b.json))
+    const generated = await post(app.base, '/clients/yuzi-phone/v1/chat/completions', {
+      model: 'dsh-default',
+      messages: [{ role: 'user', content: 'after sync' }],
+      dsh_session: {
+        protocol_version: 1, client_id: 'yuzi-phone', chat_id: 'chat-a', request_id: 'gen-a',
+        fixed_message_count: 0, fixed_message_types: [],
+      },
+    })
+    assert.equal(generated.response.status, 200, JSON.stringify(generated.json))
+    const shared = app.store.getChat('shared:yuzi-phone')
+    assert.match(JSON.stringify(shared.fixedRules), /RULES-B/)
   } finally {
     await app.close()
   }

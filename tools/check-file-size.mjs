@@ -14,7 +14,7 @@ const HARD_BYTES = 50 * 1024
 // Shrinking them is welcome; growing them costs a deliberate baseline bump.
 const BASELINE = new Map([
   ['test/session-protocol.test.mjs', 93231],
-  ['client.js', 63212],
+  ['client.js', 63692],
 ])
 
 const args = new Set(process.argv.slice(2))

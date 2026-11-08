@@ -169,6 +169,9 @@ Cordis 配置而未保存到本地设置，先通过 DSH 桥接设置页保存�
   工作区 cwd 和默认 `max_tokens`；留空跟随 DSH 当前默认。修改只影响新创建/
   重新恢复的会话，已有活动会话需重置绑定或新建会话。`reasoning_effort`
   只在模型支持该档位时传递；不支持会自动忽略，不会让整个回合报错。
+  勾选「持续会话」后，该插件的所有聊天共用一个 DSH 窗口，切换聊天 ID 不再
+  新建会话；快照仍按聊天分别记录，前两轮 `generate` 发送完整上下文，第三轮
+  起才做增量。关闭后各聊天从新会话开始，不会恢复旧窗口。
 - **客户端**：按 `client_id + chat_id + task_id` 列出绑定，支持筛选、允许
   client_id 列表、查看当前固定规则、清除规则、重置绑定。重置不删除 DSH
   会话历史。
@@ -774,6 +777,7 @@ plainCompat.taskId   = default
 | `clientEndpoints[].agentPreset` | 空 | 插件专属 Agent 预设，留空跟随 DSH 默认 |
 | `clientEndpoints[].cwd` | 空 | 插件专属工作区，留空使用 DSH 默认工作区 |
 | `clientEndpoints[].maxTokens` | 空 | 插件专属输出上限，请求里的 `max_tokens` 优先 |
+| `clientEndpoints[].persistentSession` | false | 该插件所有聊天共用一个 DSH 窗口；关闭后各聊天从新会话开始 |
 | `authToken` | 空 | 设置后要求 `Authorization: Bearer` 或 `x-api-key` |
 | `corsOrigins` | 未设置 | 额外允许的 Origin；默认允许本机与浏览器扩展 |
 | `allowRemote` | false | 允许绑定非 127.0.0.1 地址，不建议 |
