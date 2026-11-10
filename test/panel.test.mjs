@@ -115,6 +115,70 @@ test('PanelController saves, redacts token, and reloads persisted settings', () 
   }
 })
 
+test('PanelController clears plugin windows when persistent session changes', () => {
+  const dir = tempDir()
+  try {
+    const config = baseConfig(dir)
+    config.clientEndpoints = [{ id: 'yuzi-phone', label: '玉子手机', taskId: 'phone', enabled: true }]
+    const reset = []
+    const engine = {
+      capabilities: () => ({ object: 'bridge.capabilities' }),
+      resetScoped: () => ({ ok: true }),
+      clearRules: () => ({ ok: true }),
+      sharedKeyFor: id => `shared:${id}`,
+      queues: new Map(),
+      resetClient: id => { reset.push(id) },
+    }
+    const panel = new PanelController({
+      ctx: {}, config, store: { listChats: () => [] }, engine,
+      serverControl: { isRunning: () => true, start: async () => {}, stop: async () => {}, restart: async () => {} },
+      log: () => {}, version: '0.16.6',
+    })
+    panel.save({
+      settings: {
+        clientEndpoints: [{
+          id: 'yuzi-phone', label: '玉子手机', taskId: 'phone', enabled: true, persistentSession: true,
+        }],
+      },
+    })
+    assert.deepEqual(reset, ['yuzi-phone'])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('PanelController refuses a persistent-session switch while a plugin chat is busy', () => {
+  const dir = tempDir()
+  try {
+    const config = baseConfig(dir)
+    config.clientEndpoints = [{ id: 'yuzi-phone', label: '玉子手机', taskId: 'phone', enabled: true }]
+    const queues = new Map([['scope:busy', true]])
+    const engine = {
+      capabilities: () => ({ object: 'bridge.capabilities' }),
+      sharedKeyFor: id => `shared:${id}`,
+      queues,
+      resetClient: () => { throw new Error('must not reset') },
+    }
+    const panel = new PanelController({
+      ctx: {}, config,
+      store: { listChats: () => [{ clientId: 'yuzi-phone', scopeKey: 'scope:busy', chatId: 'chat-a' }] },
+      engine,
+      serverControl: { isRunning: () => true, start: async () => {}, stop: async () => {}, restart: async () => {} },
+      log: () => {}, version: '0.16.6',
+    })
+    assert.throws(() => panel.save({
+      settings: {
+        clientEndpoints: [{
+          id: 'yuzi-phone', label: '玉子手机', taskId: 'phone', enabled: true, persistentSession: true,
+        }],
+      },
+    }), /还有请求未结束|chat_busy/)
+    assert.notEqual(config.clientEndpoints[0].persistentSession, true)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('registerPanelRpc uses the DSH connection channel when available', async () => {
   let channel
   let handler

@@ -7,17 +7,17 @@ window.__ModuleLoader__.load({
 const CSS = `
 .bbh { display:grid; gap:16px; width:100%; max-width:860px; min-width:0; font-size:13px; line-height:1.55; color:inherit;
   --bbh-accent:#4d6bfe; --bbh-accent-soft:rgba(77,107,254,.08); --bbh-line:rgba(127,127,127,.24);
-  --bbh-fill:rgba(127,127,127,.07); --bbh-danger:#e5484d; --bbh-ok:#1a9f60; }
+  --bbh-fill:rgba(127,127,127,.07); --bbh-solid:Canvas; --bbh-danger:#e5484d; --bbh-ok:#1a9f60; }
 .bbh * { box-sizing:border-box; }
 .bbh-head { display:grid; gap:3px; }
 .bbh-title { margin:0; font-size:17px; font-weight:650; }
-.bbh-sub { margin:0; opacity:.6; }
 .bbh-tabs { display:flex; gap:4px; flex-wrap:wrap; border-bottom:1px solid var(--bbh-line); padding-bottom:7px; }
 .bbh-tab { appearance:none; font:inherit; color:inherit; background:transparent; border:0; border-radius:7px; padding:6px 10px; cursor:pointer; opacity:.65; }
 .bbh-tab:hover { background:var(--bbh-fill); opacity:1; }
 .bbh-tab.is-on { background:var(--bbh-accent-soft); color:var(--bbh-accent); opacity:1; font-weight:600; }
 .bbh-card { display:grid; gap:12px; padding:14px; border:1px solid var(--bbh-line); border-radius:12px; min-width:0; }
 .bbh-card-title { margin:0; font-size:14px; font-weight:600; }
+.bbh-box { display:grid; gap:10px; }
 .bbh-note { margin:0; font-size:12px; opacity:.58; }
 .bbh-grid2 { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
 .bbh-field { display:grid; gap:4px; min-width:0; align-content:start; }
@@ -26,11 +26,11 @@ const CSS = `
 .bbh-input, .bbh-textarea, .bbh-select { width:100%; min-height:34px; box-sizing:border-box; font:inherit; color:inherit; background:var(--bbh-fill); border:1px solid var(--bbh-line); border-radius:8px; padding:7px 9px; outline:none; }
 .bbh-input:focus, .bbh-textarea:focus, .bbh-select:focus { border-color:var(--bbh-accent); }
 .bbh-textarea { min-height:80px; resize:vertical; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; }
-.bbh-check-row { display:flex; align-items:flex-start; gap:18px; flex-wrap:wrap; }
+.bbh-check-row { display:flex; align-items:center; gap:18px; flex-wrap:wrap; }
 .bbh-check { display:flex; align-items:flex-start; gap:8px; font-size:13px; cursor:pointer; }
 .bbh-check input { margin-top:3px; accent-color:var(--bbh-accent); }
 .bbh-check span { display:grid; gap:1px; }
-.bbh-check small { font-size:11px; opacity:.55; }
+.bbh-check small { font-size:12px; opacity:.55; }
 .bbh-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 .bbh-btn { appearance:none; font:inherit; font-size:13px; color:#fff; background:var(--bbh-accent); border:0; border-radius:8px; padding:6px 14px; cursor:pointer; }
 .bbh-btn:hover:not(:disabled) { background:#3d5bf0; }
@@ -40,13 +40,13 @@ const CSS = `
 .bbh-btn.danger { background:var(--bbh-danger); }
 .bbh-btn.danger:hover:not(:disabled) { background:#c93b40; }
 .bbh-status { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:10px 12px; border-radius:10px; background:var(--bbh-accent-soft); }
-.bbh-savebar { position:sticky; top:0; z-index:6; display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; padding:8px 10px; border:1px solid var(--bbh-line); border-radius:10px; background:var(--bbh-fill); background:color-mix(in srgb, Canvas 94%, transparent); backdrop-filter:blur(8px); box-shadow:0 4px 14px rgba(0,0,0,.06); }
+.bbh-savebar { position:sticky; top:0; z-index:6; display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; padding:8px 10px; border:1px solid var(--bbh-line); border-radius:10px; background:var(--bbh-solid); }
 .bbh-savebar-state { font-size:12px; font-weight:550; }
 .bbh-savebar-state.dirty { color:var(--bbh-danger); }
 .bbh-savebar-state.clean { color:var(--bbh-ok); }
 .bbh-dot { width:8px; height:8px; border-radius:50%; background:var(--bbh-ok); flex:none; }
 .bbh-dot.off { background:var(--bbh-danger); }
-.bbh-pill { font-size:11px; padding:1px 7px; border-radius:999px; background:var(--bbh-fill); opacity:.8; }
+.bbh-pill { font-size:12px; padding:1px 7px; border-radius:999px; background:var(--bbh-fill); opacity:.8; }
 .bbh-error { margin:0; padding:9px 12px; border-radius:9px; color:var(--bbh-danger); background:rgba(229,72,77,.08); white-space:pre-wrap; }
 .bbh-notice { margin:0; padding:9px 12px; border-radius:9px; color:var(--bbh-ok); background:rgba(26,159,96,.08); white-space:pre-wrap; }
 .bbh-list { display:grid; gap:8px; }
@@ -54,7 +54,7 @@ const CSS = `
 .bbh-item-main { flex:1; min-width:0; display:grid; gap:2px; }
 .bbh-item-title { font-weight:550; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .bbh-item-sub { font-size:12px; opacity:.65; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.bbh-item-meta { font-size:11px; opacity:.5; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.bbh-item-meta { font-size:12px; opacity:.5; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .bbh-item-actions { display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
 .bbh-pre { margin:0; padding:10px 12px; border-radius:9px; background:var(--bbh-fill); max-height:300px; overflow:auto; font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace; white-space:pre-wrap; word-break:break-word; }
 .bbh-kv { display:grid; grid-template-columns:auto minmax(0,1fr); gap:4px 12px; font-size:12px; }
@@ -154,11 +154,10 @@ function renderEndpoints(c) {
     Field, Check, status, form, endpointBase, setEndpointBase, setField,
     modelCatalog, workspaceOptions, agentPresetField, setNotice, setError, busy, save,
   } = c
-  return h('div', { className: 'bbh-card' },
+  return h('div', { className: 'bbh' },
     h('h3', { className: 'bbh-card-title' }, '插件专属接入地址'),
-    h('p', { className: 'bbh-note' }, '不同插件使用不同地址；扩展继续补充当前酒馆聊天 ID。地址只标识来源，认证仍使用原有设备令牌。保存后生效，无需重启服务。'),
-    h('p', { className: 'bbh-note' }, '模型、Agent 预设、工作区和 max_tokens 都按插件分别设置。留空时跟随 DSH 当前默认；不再使用全局模型设置。已有会话保持原配置，修改后需重置绑定或新建会话才切换。'),
-    h(Field, { label: '复制地址时使用的电脑地址', hint: '手机请选择能访问的局域网地址，127.0.0.1只用于电脑本机。' },
+    h('p', { className: 'bbh-note' }, '每个插件使用独立地址；扩展会带上当前酒馆聊天 ID。模型、预设、工作区和 max_tokens 按插件设置，留空跟随 DSH 默认；已有会话需重置或新建后才切换。开启持续会话时，聊天 ID 只用于快照隔离，不决定共用窗口。'),
+    h(Field, { label: '复制地址时使用的电脑地址', hint: '手机请选择能访问的局域网地址，127.0.0.1 只用于电脑本机。' },
       h('select', { className: 'bbh-select', value: endpointBase || status.network?.urls?.[0] || `http://127.0.0.1:${status.service.port}/v1`, onChange: e => setEndpointBase(e.target.value) },
         [...new Set([...(status.network?.urls ?? []), `http://127.0.0.1:${status.service.port}/v1`])].map(value => h('option', { key: value, value }, value)))),
     ...form.clientEndpoints.map((entry, index) => {
@@ -194,11 +193,11 @@ function renderEndpoints(c) {
         ? '正在读取 DSH 工作区…'
         : workspaceOptions.available === false
           ? `无法读取 DSH 工作区：${workspaceOptions.error || '未知错误'}`
-          : '留空跟随 DSH 默认工作区；新会话挂载到所选工作区。'
+          : '留空使用 DSH 的首个工作区；新会话挂载到所选工作区。'
       return h('div', { className: 'bbh-card', key: index },
         h('div', { className: 'bbh-grid2' },
           h(Field, { label: '显示名称' }, h('input', { className: 'bbh-input', value: entry.label, onChange: e => update({ label: e.target.value }) })),
-          h(Field, { label: '唯一插件ID', hint: '小写字母、数字、下划线或短横线；修改ID会使用新的会话范围，旧历史保留。' }, h('input', { className: 'bbh-input', value: entry.id, onChange: e => update({ id: e.target.value }) })),
+          h(Field, { label: '唯一插件 ID', hint: '小写字母、数字、下划线或短横线；修改 ID 会使用新的会话范围，旧历史保留。' }, h('input', { className: 'bbh-input', value: entry.id, onChange: e => update({ id: e.target.value }) })),
           h(Field, { label: '默认任务类型' }, h('input', { className: 'bbh-input', value: entry.taskId, onChange: e => update({ taskId: e.target.value }) })),
           h(Field, { label: '专属 Skill（可选）', hint: 'kebab-case 名称；修改后已有会话需重置才能切换。' },
             h('input', { className: 'bbh-input', value: entry.skillId ?? '', onChange: e => update({ skillId: e.target.value.trim() }) }))),
@@ -231,29 +230,29 @@ function renderEndpoints(c) {
             h('option', { value: '' }, '跟随 DSH 默认'),
             ...(entry.cwd && !knownWorkspace ? [h('option', { key: 'current', value: entry.cwd }, `${entry.cwd}（当前）`)] : []),
             ...(workspaceOptions?.workspaces ?? []).map(workspace => h('option', { key: workspace.path, value: workspace.path }, workspace.name || workspace.path)))),
-          h(Field, { label: 'max_tokens', hint: '留空使用模型 / DSH 默认；请求里的 max_tokens 优先。' },
+          h(Field, { label: 'max_tokens', hint: '留空使用模型 / DSH 默认；单次请求携带的 max_tokens 优先。' },
             h('input', { className: 'bbh-input', type: 'number', min: 1, value: entry.maxTokens ?? '', onChange: e => update({ maxTokens: e.target.value }) }))),
         h('div', { className: 'bbh-check-row' },
           h(Check, { label: '启用此接入', checked: entry.enabled, onChange: enabled => update({ enabled }) }),
           h(Check, {
             label: '持续会话',
-            hint: '开启后该插件的所有聊天共用一个 DSH 窗口；关闭后各聊天从新会话开始。',
             checked: entry.persistentSession === true,
             onChange: persistentSession => update({ persistentSession }),
           })),
+        h('p', { className: 'bbh-note' }, '持续会话开启后，该插件的所有聊天共用一个 DSH 窗口，固定规则以最后一次同步为准。切换开关会清掉该插件旧窗口；关闭后各聊天从新会话开始，不会恢复旧窗口。'),
         h('input', { className: 'bbh-input', value: address, readOnly: true, 'aria-label': '插件API地址' }),
         h('div', { className: 'bbh-actions' },
           h('button', { type: 'button', className: 'bbh-btn secondary', onClick: async () => {
             try { await navigator.clipboard.writeText(address); setNotice('地址已复制；新增或修改接入后请先保存，再用于插件。') }
             catch { setError('剪贴板不可用，请手动复制上方地址。') }
-          } }, '复制API地址'),
+          } }, '复制 API 地址'),
           h('button', { type: 'button', className: 'bbh-btn secondary', onClick: () => setField('clientEndpoints', form.clientEndpoints.filter((_, i) => i !== index)) }, '删除接入')),
       )
     }),
     h('div', { className: 'bbh-actions' },
       h('button', { type: 'button', className: 'bbh-btn secondary', onClick: () => setField('clientEndpoints', [...form.clientEndpoints, { id: '', label: '', taskId: 'default', skillId: '', enabled: true, persistentSession: false }]) }, '新增插件接入'),
-      h('button', { type: 'button', className: 'bbh-btn', disabled: busy, onClick: () => void save() }, busy ? '保存中…' : '保存插件接入')),
-    h('p', { className: 'bbh-note' }, '停用或删除只影响该地址的新请求，不删除Agent历史、不取消正在执行的任务。若设置了允许client_id列表，还需允许相应插件ID。'),
+      h('button', { type: 'button', className: 'bbh-btn', disabled: busy, onClick: () => void save() }, busy ? '保存中…' : '保存')),
+    h('p', { className: 'bbh-note' }, '停用或删除只影响该地址的新请求，不删除 Agent 历史、不取消正在执行的任务。若设置了允许 client_id 列表，还需允许相应插件 ID。'),
   )
 }
 
@@ -545,7 +544,7 @@ const { renderEndpoints } = require('./endpoints.js')
 
       const chats = status?.chats ?? []
       const dirty = savedFingerprint !== '' && JSON.stringify(form) !== savedFingerprint
-      const showSaveBar = status !== null && !['diagnostics', 'presets', 'danger', 'advanced'].includes(tab)
+      const showSaveBar = status !== null && !['presets', 'advanced'].includes(tab)
       const filtered = chats.filter(chat => {
         const needle = filter.trim().toLowerCase()
         if (!needle) return true
@@ -592,8 +591,6 @@ const { renderEndpoints } = require('./endpoints.js')
         ['endpoints', '插件接入'],
         ['clients', `客户端 (${chats.length})`],
         ['presets', '固定预设'],
-        ['diagnostics', '诊断'],
-        ['danger', '危险操作'],
         ['advanced', '高级'],
       ]
 
@@ -601,7 +598,6 @@ const { renderEndpoints } = require('./endpoints.js')
         h('style', null, CSS),
         h('header', { className: 'bbh-head' },
           h('h2', { className: 'bbh-title' }, 'ST-bridge'),
-          h('p', { className: 'bbh-sub' }, 'DSH Host 插件 ST-bridge 的服务、插件接入、scope 与会话管理。'),
         ),
 
         status === null
@@ -614,7 +610,6 @@ const { renderEndpoints } = require('./endpoints.js')
               h('strong', null, status.running ? '运行中' : '未运行'),
               h('span', { className: 'bbh-pill' }, `v${status.version}`),
               h('span', { className: 'bbh-pill' }, status.active ? `${status.active.host}:${status.active.port}` : '未监听'),
-              h('span', { className: 'bbh-pill' }, `${status.counts.scopes} scopes · ${status.counts.sessions} sessions`),
               h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => void load() }, '刷新'),
             ),
 
@@ -721,14 +716,14 @@ const { renderEndpoints } = require('./endpoints.js')
           h(Field, { label: 'CORS 额外 Origin', hint: '每行一个，或逗号分隔。默认允许本机页面与浏览器扩展。' },
             h('textarea', { className: 'bbh-textarea', rows: 3, value: form.corsText, onChange: e => setField('corsText', e.target.value) })),
           h(Check, { checked: form.allowLegacyPlain, onChange: value => setField('allowLegacyPlain', value), label: '允许不带 dsh_session 的旧式普通补全', hint: '默认关闭，避免健康检查创建正式会话。' }),
-          h(Check, { checked: form.sessionOnStale, onChange: value => setField('sessionOnStale', value), label: '失效 session_id 自动新建会话', hint: '仅在该 scope 已无绑定时生效；避免重置后插件仍发旧 ID 导致 410。' }),
+          h(Check, { checked: form.sessionOnStale, onChange: value => setField('sessionOnStale', value), label: '失效 session_id 自动新建会话', hint: '仅在该作用域已无绑定时生效；避免重置后插件仍发旧 ID 导致 410。' }),
           h(Check, { checked: form.sessionOnArchived, onChange: value => setField('sessionOnArchived', value), label: '归档会话自动新建', hint: '绑定会话被归档时忽略旧会话，直接新建。' }),
           h(Check, { checked: form.contextOverflow, onChange: value => setField('contextOverflow', value), label: '上下文超限重建会话', hint: '收到 413 context_length_exceeded 时清空绑定并新建；仍有单轮正文超限的可能。' }),
           h(Field, { label: '瞬时错误重试次数', hint: '429/5xx/超时，且本轮尚未产生 user 消息时重试；0 关闭。' },
             h('input', { className: 'bbh-input', type: 'number', min: 0, max: 2, value: form.transientRetry, onChange: e => setField('transientRetry', e.target.value) })),
           h(Check, { checked: form.allowRemote, onChange: value => setField('allowRemote', value), label: '允许绑定非本机地址', hint: '高风险，仅在已有 token 与网络隔离时使用。' }),
           h(Check, { checked: form.inputCleanupEnabled, onChange: value => setField('inputCleanupEnabled', value), label: '桥接侧清理完整标签块', hint: '兜底处理绕过浏览器适配的请求；只删完整成对标签，孤立/跨消息保留并记录。' }),
-          h(Field, { label: '清理标签', hint: `逗号分隔，默认 ${form.defaultInputCleanupTags.join(', ') || '由服务端提供'}。修改后点右侧「保存」或上方「保存设置」写入；关闭窗口不会自动保存。` },
+          h(Field, { label: '清理标签', hint: `逗号分隔，默认 ${form.defaultInputCleanupTags.join(', ') || '由服务端提供'}。修改后点右侧「保存」或上方「保存设置」写入。` },
             h('div', { className: 'bbh-actions' },
               h('input', { className: 'bbh-input', value: form.inputCleanupTags, onChange: e => setField('inputCleanupTags', e.target.value) }),
               h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => void save() }, '保存'),
@@ -744,7 +739,7 @@ const { renderEndpoints } = require('./endpoints.js')
           ),
           h('details', { className: 'bbh-fold', open: form.systemSnapshotMode !== 'native' },
             h('summary', null, '系统段快照：后续轮次保留世界书'),
-            h('p', { className: 'bbh-note' }, '旧版会用空 system 节点替换系统段，导致第二轮起世界书、固定规则和 Skill 从模型输入中消失。native 由 DSH 自己维护，只在发现遗留空节点时补写；filled 每轮写入完整系统段；empty 仅用于诊断。'),
+            h('p', { className: 'bbh-note' }, 'native 由 DSH 维护系统段，只在发现旧版遗留空节点时补写；filled 每轮写入完整系统段；empty 仅用于诊断。'),
             h(Field, { label: '模式', hint: '默认 native。若新激活的世界书仍不更新，测试 filled。' },
               h('select', { className: 'bbh-input', value: form.systemSnapshotMode, onChange: e => setField('systemSnapshotMode', e.target.value) },
                 (form.systemSnapshotModes.length ? form.systemSnapshotModes : [form.systemSnapshotMode]).filter(Boolean).map(mode =>
@@ -753,10 +748,10 @@ const { renderEndpoints } = require('./endpoints.js')
           ),
           h('details', { className: 'bbh-fold', open: form.snapshotEnabled },
             h('summary', null, '快照差分：删除与上一轮相同的块'),
-            h('p', { className: 'bbh-note' }, '用专属随机标记切块，只删开头/结尾完整相同块；没有标记或标记不配对时整段发送。'),
+            h('p', { className: 'bbh-note' }, 'auto 按段落切；marker 用专属 B/E 标记包住每段。只删除开头/结尾完整相同的块；标记不配对时整段发送。'),
             h(Check, { checked: form.snapshotEnabled, onChange: value => setField('snapshotEnabled', value), label: '启用快照差分' }),
             h('div', { className: 'bbh-grid2' },
-              h(Field, { label: '切块模式', hint: 'auto = 自动按段落切；marker = 模板 B/E 标记。' },
+              h(Field, { label: '切块模式', hint: 'auto = 自动按段落切；marker = 用 B/E 标记包住每段。' },
                 h('input', { className: 'bbh-input', value: form.snapshotMode, onChange: e => setField('snapshotMode', e.target.value) })),
               h(Field, { label: '单块上限（字符）', hint: 'auto 模式下长段落每行一块；单行超长才按此上限切。' },
                 h('input', { className: 'bbh-input', type: 'number', min: 64, max: 20000, value: form.snapshotMaxBlockChars, onChange: e => setField('snapshotMaxBlockChars', e.target.value) })),
@@ -778,8 +773,8 @@ const { renderEndpoints } = require('./endpoints.js')
               h('input', { className: 'bbh-input', value: form.snapshotDivergence, onChange: e => setField('snapshotDivergence', e.target.value) })),
           ),
           h('details', { className: 'bbh-fold', open: form.plainCompatEnabled },
-            h('summary', null, '兼容模式：普通 OpenAI 请求归入固定 scope'),
-            h('p', { className: 'bbh-note' }, '用于只能填 URL/Key/模型、无法发送 dsh_session 的插件（例如玉子手机）。所有不带 dsh_session 的请求都会归入下面这一个 scope；不同插件不要同时使用。'),
+            h('summary', null, '兼容模式：普通 OpenAI 请求归入固定作用域'),
+            h('p', { className: 'bbh-note' }, '用于只能填 URL/Key/模型、无法发送 dsh_session 的插件（例如玉子手机）。所有不带 dsh_session 的请求都会归入下面这一个作用域；不同插件不要同时使用。'),
             h(Check, { checked: form.plainCompatEnabled, onChange: value => setField('plainCompatEnabled', value), label: '启用普通请求兼容模式' }),
             h('div', { className: 'bbh-grid2' },
               h(Field, { label: 'client_id' },
@@ -796,10 +791,6 @@ const { renderEndpoints } = require('./endpoints.js')
                 h('input', { className: 'bbh-input', value: form.plainCompatFixedTypes, onChange: e => setField('plainCompatFixedTypes', e.target.value) })),
             ),
           ),
-          h('div', { className: 'bbh-actions' },
-            h('button', { type: 'button', className: 'bbh-btn', disabled: busy, onClick: () => void save() }, busy ? '保存中…' : '保存设置'),
-            h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => void saveAndRestart() }, '保存并重启'),
-          ),
         ) : null,
 
         status === null ? null : tab === 'endpoints' ? renderEndpoints({
@@ -809,12 +800,9 @@ const { renderEndpoints } = require('./endpoints.js')
 
         status === null ? null : tab === 'clients' ? h('div', { className: 'bbh-card' },
           h('h3', { className: 'bbh-card-title' }, '客户端与绑定'),
-          h('p', { className: 'bbh-note' }, '按 client_id + chat_id + task_id 隔离。重置只解除桥接绑定，不删除 DSH 会话历史；下次生成会新建会话。'),
+          h('p', { className: 'bbh-note' }, '默认按 client_id + chat_id + task_id 隔离；开启持续会话的插件只按 client_id 共用一个窗口。重置只解除桥接绑定，不删除 DSH 会话历史；下次生成会新建会话。'),
           h(Field, { label: '允许的 client_id', hint: '每行一个，留空允许所有插件；写入后其它 client_id 会返回 403。' },
             h('textarea', { className: 'bbh-textarea', rows: 3, value: form.allowedClientsText, onChange: e => setField('allowedClientsText', e.target.value) })),
-          h('div', { className: 'bbh-actions' },
-            h('button', { type: 'button', className: 'bbh-btn', disabled: busy, onClick: () => void save() }, busy ? '保存中…' : '保存允许列表'),
-          ),
           h('div', { className: 'bbh-actions' },
             h('input', { className: 'bbh-input', style: { maxWidth: '320px' }, placeholder: '筛选 client / chat / task / 标题', value: filter, onChange: e => setFilter(e.target.value) }),
             h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => void load() }, '刷新'),
@@ -836,14 +824,18 @@ const { renderEndpoints } = require('./endpoints.js')
                       className: 'bbh-btn secondary',
                       disabled: busy,
                       onClick: () => {
-                        if (!window.confirm(`重置 ${chat.client_label} / ${chat.chat_id} 的桥接绑定？DSH 历史会保留。`)) return
+                        const shared = chat.task_id === 'shared' || String(chat.chat_id).startsWith('shared:')
+                        const message = shared
+                          ? `该插件开启了持续会话。重置会清除 ${chat.client_label} 的共享窗口，影响该插件所有聊天；DSH 历史会保留。继续？`
+                          : `重置 ${chat.client_label} / ${chat.chat_id} 的桥接绑定？DSH 历史会保留。`
+                        if (!window.confirm(message)) return
                         void action('reset_binding', { client_id: chat.client_id, chat_id: chat.chat_id, task_id: chat.task_id })
                       },
                     }, '重置绑定'),
                   ),
                 )),
               ),
-          rules ? h('div', { className: 'bbh-card' },
+          rules ? h('div', { className: 'bbh-box' },
             h('div', { className: 'bbh-actions', style: { justifyContent: 'space-between' } },
               h('h3', { className: 'bbh-card-title' }, `固定规则 · ${rules.client_label} / ${rules.chat_id}${rules.task_id !== 'default' ? ` / ${rules.task_id}` : ''}`),
               h('div', { className: 'bbh-actions' },
@@ -852,7 +844,7 @@ const { renderEndpoints } = require('./endpoints.js')
                   className: 'bbh-btn danger',
                   disabled: busy || rules.fixed_rules.length === 0,
                   onClick: () => {
-                    if (!window.confirm('清除当前 scope 的固定规则？下次生成前需要重新同步。')) return
+                    if (!window.confirm('清除当前作用域的固定规则？下次生成前需要重新同步。')) return
                     void clearRules()
                   },
                 }, '清除规则'),
@@ -860,21 +852,21 @@ const { renderEndpoints } = require('./endpoints.js')
               ),
             ),
             rules.fixed_rules.length === 0
-              ? h('p', { className: 'bbh-note' }, '当前 scope 没有固定规则。')
+              ? h('p', { className: 'bbh-note' }, '当前作用域没有固定规则。')
               : h('pre', { className: 'bbh-pre' }, rules.fixed_rules.map(rule => `[${rule.type}] (${rule.role})\n${rule.text}`).join('\n\n')),
           ) : null,
         ) : null,
 
         status === null ? null : tab === 'presets' ? h('div', { className: 'bbh-card' },
           h('div', { className: 'bbh-actions', style: { justifyContent: 'space-between' } },
-            h('h3', { className: 'bbh-card-title' }, '固定预设分离'),
+            h('h3', { className: 'bbh-card-title' }, '固定预设'),
             h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => void loadPresets() }, presets ? '刷新' : '读取'),
           ),
           h('p', { className: 'bbh-note' }, '只对已确认的边界去重。未识别、部分匹配、多重匹配一律完整保留；配置只存 Hash，不存预设正文。'),
           presets === null
             ? h('p', { className: 'bbh-note' }, '尚未读取。')
             : [
-                h('p', { className: 'bbh-note' }, `已配置 ${presets.presets.length} 条，已安装 ${presets.installs.length} 个 scope。`),
+                h('p', { className: 'bbh-note' }, `已配置 ${presets.presets.length} 条，已安装 ${presets.installs.length} 个作用域。`),
                 ...presets.presets.map(item => h('div', { className: 'bbh-item', key: item.id },
                   h('div', null,
                     h('strong', null, item.label),
@@ -902,70 +894,77 @@ const { renderEndpoints } = require('./endpoints.js')
               ],
         ) : null,
 
-        status === null ? null : tab === 'diagnostics' ? h('div', { className: 'bbh-card' },
-          h('h3', { className: 'bbh-card-title' }, '诊断'),
-          h('div', { className: 'bbh-kv' },
-            h('span', null, '版本'), h('span', null, status.version),
-            h('span', null, '运行状态'), h('span', null, status.running ? '运行中' : '未运行'),
-            h('span', null, '监听'), h('span', null, status.active ? `${status.active.host}:${status.active.port}` : '未监听'),
-            h('span', null, '作用域 / 会话'), h('span', null, `${status.counts.scopes} / ${status.counts.sessions}`),
-            h('span', null, '状态文件'), h('span', null, status.settings_file),
-            h('span', null, '日志'), h('span', null, status.log_file),
-          ),
-          h('div', { className: 'bbh-actions' },
-            h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => void load() }, '刷新状态'),
-            h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => void showLogPath() }, '显示日志路径'),
-          ),
+        status === null ? null : tab === 'advanced' ? h('div', { className: 'bbh-box' },
+          h('h3', { className: 'bbh-card-title' }, '高级'),
           h('details', { className: 'bbh-fold', open: true },
-            h('summary', null, 'Capabilities'),
-            h('pre', { className: 'bbh-pre' }, JSON.stringify(status.capabilities, null, 2)),
-          ),
-          h('details', { className: 'bbh-fold' },
-            h('summary', null, '最近日志'),
-            h('pre', { className: 'bbh-pre' }, status.log_tail?.trim() || '（暂无日志）'),
-          ),
-        ) : null,
-
-        status === null ? null : tab === 'danger' ? h('div', { className: 'bbh-card bbh-danger-card' },
-          h('h3', { className: 'bbh-card-title' }, '危险操作'),
-          h('p', { className: 'bbh-note' }, '这些操作只影响桥接服务与绑定，不删除 DSH 会话历史。'),
-          h('div', { className: 'bbh-actions' },
-            h('button', {
-              type: 'button',
-              className: 'bbh-btn secondary',
-              disabled: busy || !status.running,
-              onClick: () => {
-                if (!window.confirm('停止桥接会中断正在进行的请求，但不会删除 DSH 会话。继续？')) return
-                void action('stop')
-              },
-            }, '停止桥接'),
-            h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy || status.running, onClick: () => void action('start') }, '启动桥接'),
-            h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => void action('restart') }, '重启桥接'),
-          ),
-          h('div', { className: 'bbh-card' },
-            h('h4', { className: 'bbh-card-title' }, '清空全部绑定'),
-            h('p', { className: 'bbh-note' }, '移除所有 client/chat/task 的映射。下次请求会重新创建会话。输入 RESET 确认。'),
-            h('div', { className: 'bbh-actions' },
-              h('input', { className: 'bbh-input', style: { maxWidth: '220px' }, placeholder: 'RESET', value: dangerText, onChange: e => setDangerText(e.target.value) }),
-              h('button', {
-                type: 'button',
-                className: 'bbh-btn danger',
-                disabled: busy || dangerText !== 'RESET',
-                onClick: () => {
-                  void action('clear_bindings', { confirm: dangerText }).then(ok => { if (ok) setDangerText('') })
-                },
-              }, '清空全部绑定'),
+            h('summary', null, '运行诊断'),
+            h('div', { className: 'bbh-card' },
+              h('div', { className: 'bbh-kv' },
+                h('span', null, '版本'), h('span', null, status.version),
+                h('span', null, '运行状态'), h('span', null, status.running ? '运行中' : '未运行'),
+                h('span', null, '监听'), h('span', null, status.active ? `${status.active.host}:${status.active.port}` : '未监听'),
+                h('span', null, '作用域 / 会话'), h('span', null, `${status.counts.scopes} / ${status.counts.sessions}`),
+                h('span', null, '状态文件'), h('span', null, status.settings_file),
+                h('span', null, '日志'), h('span', null, status.log_file),
+              ),
+              h('div', { className: 'bbh-actions' },
+                h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => void load() }, '刷新状态'),
+                h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => void showLogPath() }, '显示日志路径'),
+              ),
+              h('details', { className: 'bbh-fold', open: true },
+                h('summary', null, '能力'),
+                h('pre', { className: 'bbh-pre' }, JSON.stringify(status.capabilities, null, 2)),
+              ),
+              h('details', { className: 'bbh-fold' },
+                h('summary', null, '最近日志'),
+                h('pre', { className: 'bbh-pre' }, status.log_tail?.trim() || '（暂无日志）'),
+              ),
             ),
           ),
-        ) : null,
-
-        status === null ? null : tab === 'advanced' ? h('div', { className: 'bbh-card' },
-          h('h3', { className: 'bbh-card-title' }, '原始设置 JSON'),
-          h('p', { className: 'bbh-note' }, '对应 ~/.dsh/st-bridge/settings.json。authToken 留空表示保持现有值；host/port 修改后需要重启桥接；stateDir 只能在 cordis.patch.yml 中修改。'),
-          h('textarea', { className: 'bbh-textarea', style: { minHeight: '300px' }, value: rawText, onChange: e => setRawText(e.target.value), spellCheck: false }),
-          h('div', { className: 'bbh-actions' },
-            h('button', { type: 'button', className: 'bbh-btn', disabled: busy, onClick: () => void saveRaw() }, busy ? '保存中…' : '保存原始配置'),
-            h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => { setRawLoaded(false) } }, '重新读取'),
+          h('details', { className: 'bbh-fold' },
+            h('summary', null, '危险操作'),
+            h('div', { className: 'bbh-card bbh-danger-card' },
+              h('p', { className: 'bbh-note' }, '这些操作只影响桥接服务与绑定，不删除 DSH 会话历史。'),
+              h('div', { className: 'bbh-actions' },
+                h('button', {
+                  type: 'button',
+                  className: 'bbh-btn secondary',
+                  disabled: busy || !status.running,
+                  onClick: () => {
+                    if (!window.confirm('停止桥接会中断正在进行的请求，但不会删除 DSH 会话。继续？')) return
+                    void action('stop')
+                  },
+                }, '停止桥接'),
+                h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy || status.running, onClick: () => void action('start') }, '启动桥接'),
+                h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => void action('restart') }, '重启桥接'),
+              ),
+              h('div', { className: 'bbh-box' },
+                h('h4', { className: 'bbh-card-title' }, '清空全部绑定'),
+                h('p', { className: 'bbh-note' }, '移除所有 client/chat/task 的映射。下次请求会重新创建会话。输入 RESET 确认。'),
+                h('div', { className: 'bbh-actions' },
+                  h('input', { className: 'bbh-input', style: { maxWidth: '220px' }, placeholder: 'RESET', value: dangerText, onChange: e => setDangerText(e.target.value) }),
+                  h('button', {
+                    type: 'button',
+                    className: 'bbh-btn danger',
+                    disabled: busy || dangerText !== 'RESET',
+                    onClick: () => {
+                      void action('clear_bindings', { confirm: dangerText }).then(ok => { if (ok) setDangerText('') })
+                    },
+                  }, '清空全部绑定'),
+                ),
+              ),
+            ),
+          ),
+          h('details', { className: 'bbh-fold' },
+            h('summary', null, '原始设置 JSON'),
+            h('div', { className: 'bbh-card' },
+              h('p', { className: 'bbh-note' }, '对应 ~/.dsh/st-bridge/settings.json。authToken 留空表示保持现有值；host/port 修改后需要重启桥接；stateDir 只能在 cordis.patch.yml 中修改。'),
+              h('textarea', { className: 'bbh-textarea', style: { minHeight: '300px' }, value: rawText, onChange: e => setRawText(e.target.value), spellCheck: false }),
+              h('div', { className: 'bbh-actions' },
+                h('button', { type: 'button', className: 'bbh-btn', disabled: busy, onClick: () => void saveRaw() }, busy ? '保存中…' : '保存原始配置'),
+                h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => { setRawLoaded(false) } }, '重新读取'),
+              ),
+            ),
           ),
         ) : null,
       )

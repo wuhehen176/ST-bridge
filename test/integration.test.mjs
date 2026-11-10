@@ -367,6 +367,35 @@ test('persistent plugin sessions share one window across chats and reset all cha
   }
 })
 
+test('resetClient clears old chat bindings and the shared window for one plugin', async () => {
+  const app = await start()
+  try {
+    const request = (chat, requestId) => post(app.base, '/clients/yuzi-phone/v1/chat/completions', {
+      model: 'dsh-default',
+      messages: [{ role: 'user', content: `reset ${chat} ${requestId}` }],
+      dsh_session: {
+        protocol_version: 1, client_id: 'yuzi-phone', chat_id: chat, request_id: requestId,
+        fixed_message_count: 0, fixed_message_types: [],
+      },
+    })
+    await request('chat-a', 'a1')
+    await request('chat-b', 'b1')
+    assert.equal(app.store.listChats().length, 2)
+
+    app.engine.config.clientEndpoints = [{
+      id: 'yuzi-phone', label: '玉子手机', taskId: 'phone', enabled: true, persistentSession: true,
+    }]
+    await request('chat-c', 'c1')
+    assert.equal(app.store.listChats().length, 3)
+
+    const reset = app.engine.resetClient('yuzi-phone')
+    assert.equal(reset.removed, 3)
+    assert.equal(app.store.listChats().length, 0)
+  } finally {
+    await app.close()
+  }
+})
+
 test('persistent plugin sessions keep snapshot state per chat', async () => {
   const app = await start({
     clientEndpoints: [{ id: 'yuzi-phone', label: '玉子手机', taskId: 'phone', enabled: true, persistentSession: true }],

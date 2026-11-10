@@ -169,16 +169,18 @@ Cordis 配置而未保存到本地设置，先通过 DSH 桥接设置页保存�
   工作区 cwd 和默认 `max_tokens`；留空跟随 DSH 当前默认。修改只影响新创建/
   重新恢复的会话，已有活动会话需重置绑定或新建会话。`reasoning_effort`
   只在模型支持该档位时传递；不支持会自动忽略，不会让整个回合报错。
-  勾选「持续会话」后，该插件的所有聊天共用一个 DSH 窗口，切换聊天 ID 不再
-  新建会话；快照仍按聊天分别记录，前两轮 `generate` 发送完整上下文，第三轮
-  起才做增量。关闭后各聊天从新会话开始，不会恢复旧窗口。
-- **客户端**：按 `client_id + chat_id + task_id` 列出绑定，支持筛选、允许
-  client_id 列表、查看当前固定规则、清除规则、重置绑定。重置不删除 DSH
-  会话历史。
-- **诊断**：运行状态、scope/会话数、capabilities、日志路径与最近日志。
-- **危险操作**：停止/启动/重启桥接、清空全部绑定。清空需要输入 `RESET`；
-  停止前会二次确认。
-- **高级**：直接编辑 `settings.json` 对应的 JSON；不展示真实 token。
+  勾选「持续会话」后，该插件的所有聊天共用一个 DSH 窗口，固定规则以最后一次
+  `sync_rules` 为准，切换聊天 ID 不再新建会话；快照仍按聊天分别记录，前两轮
+  `generate` 发送完整上下文，第三轮起才做增量。切换开关会清掉该插件旧窗口；
+  关闭后各聊天从新会话开始，不会恢复旧窗口。
+- **客户端**：默认按 `client_id + chat_id + task_id` 列出绑定，支持筛选、允许
+  client_id 列表、查看当前固定规则、清除规则、重置绑定。开启持续会话的插件只按
+  `client_id` 共用一个窗口，重置任一聊天会清掉该插件共享窗口并影响所有聊天。
+  重置不删除 DSH 会话历史。
+- **高级**：折叠区包含运行诊断、危险操作和原始设置 JSON。运行诊断显示运行状态、
+  scope/会话数、capabilities、日志路径与最近日志；危险操作可停止/启动/重启桥接、
+  清空全部绑定，清空需要输入 `RESET`，停止前会二次确认；原始设置可直接编辑
+  `settings.json` 对应的 JSON，不展示真实 token。
 
 设置保存到 `~/.dsh/st-bridge/settings.json`（权限 0600）。界面里的
 token 输入框留空表示保持现有 token；点「清除」才会移除。
@@ -777,7 +779,7 @@ plainCompat.taskId   = default
 | `clientEndpoints[].agentPreset` | 空 | 插件专属 Agent 预设，留空跟随 DSH 默认 |
 | `clientEndpoints[].cwd` | 空 | 插件专属工作区，留空使用 DSH 默认工作区 |
 | `clientEndpoints[].maxTokens` | 空 | 插件专属输出上限，请求里的 `max_tokens` 优先 |
-| `clientEndpoints[].persistentSession` | false | 该插件所有聊天共用一个 DSH 窗口；关闭后各聊天从新会话开始 |
+| `clientEndpoints[].persistentSession` | false | 该插件所有聊天共用一个 DSH 窗口；切换开关会清掉旧窗口，关闭后各聊天从新会话开始 |
 | `authToken` | 空 | 设置后要求 `Authorization: Bearer` 或 `x-api-key` |
 | `corsOrigins` | 未设置 | 额外允许的 Origin；默认允许本机与浏览器扩展 |
 | `allowRemote` | false | 允许绑定非 127.0.0.1 地址，不建议 |
