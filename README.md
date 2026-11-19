@@ -166,8 +166,10 @@ Cordis 配置而未保存到本地设置，先通过 DSH 桥接设置页保存�
 - **服务**：启停、host/port、Bearer token、CORS、`allowLegacyPlain`、
   请求超时、请求体上限。host/port 修改后点「保存并重启」。
 - **插件接入**：每个插件条目可单独选择模型（按 Provider 分组）、Agent 预设、
-  工作区 cwd 和默认 `max_tokens`；留空跟随 DSH 当前默认。修改只影响新创建/
-  重新恢复的会话，已有活动会话需重置绑定或新建会话。`reasoning_effort`
+  工作区 cwd 和默认 `max_tokens`；留空跟随 DSH 当前默认。还可以填“固定
+  chat_id”：留空使用酒馆当前聊天 ID；填写后该插件始终使用这个 ID，适合论坛等
+  没有聊天上下文的页面。修改只影响新创建/重新恢复的会话，已有活动会话需重置
+  绑定或新建会话。`reasoning_effort`
   只在模型支持该档位时传递；不支持会自动忽略，不会让整个回合报错。
   勾选「持续会话」后，该插件的所有聊天共用一个 DSH 窗口，固定规则以最后一次
   `sync_rules` 为准，切换聊天 ID 不再新建会话；快照仍按聊天分别记录，前两轮
@@ -778,6 +780,7 @@ plainCompat.taskId   = default
 | `clientEndpoints[].provider` / `.model` | 空 | 插件专属模型，必须同时填写或同时留空 |
 | `clientEndpoints[].agentPreset` | 空 | 插件专属 Agent 预设，留空跟随 DSH 默认 |
 | `clientEndpoints[].cwd` | 空 | 插件专属工作区，留空使用 DSH 默认工作区 |
+| `clientEndpoints[].fixedChatId` | 空 | 固定聊天 ID；设置后该插件始终使用它，留空才使用当前酒馆聊天 ID |
 | `clientEndpoints[].maxTokens` | 空 | 插件专属输出上限，请求里的 `max_tokens` 优先 |
 | `clientEndpoints[].persistentSession` | false | 该插件所有聊天共用一个 DSH 窗口；切换开关会清掉旧窗口，关闭后各聊天从新会话开始 |
 | `authToken` | 空 | 设置后要求 `Authorization: Bearer` 或 `x-api-key` |

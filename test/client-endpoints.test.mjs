@@ -107,6 +107,21 @@ test('endpoint registry carries persistent-session opt-in', () => {
   assert.throws(() => clientEndpoints([{ ...entry, persistentSession: 'yes' }]), /持续会话状态须为布尔值/)
 })
 
+test('endpoint registry carries a fixed chat id and uses it without the current chat', () => {
+  const entry = { id: 'forum', label: '论坛', taskId: 'default', enabled: true, fixedChatId: 'stb-forum' }
+  assert.deepEqual(clientEndpoints([entry]), [entry])
+  const [blank] = clientEndpoints([{ ...entry, fixedChatId: '  ' }])
+  assert.equal('fixedChatId' in blank, false)
+  assert.throws(() => clientEndpoints([{ ...entry, fixedChatId: 'x'.repeat(257) }]), /长度不能超过256/)
+  assert.throws(() => clientEndpoints([{ ...entry, fixedChatId: 'bad\u0000id' }]), /控制字符/)
+
+  const withCurrentChat = endpointSession(entry, {}, { protocol_version: 1, client_id: 'forum', chat_id: 'tavern-chat', task_id: 'default' })
+  assert.equal(withCurrentChat.chat_id, 'stb-forum')
+  const withoutChat = endpointSession(entry, {}, undefined)
+  assert.equal(withoutChat.chat_id, 'stb-forum')
+  assert.equal(withoutChat.task_id, 'default')
+})
+
 test('route identity rejects conflicting declarations without erasing existing protocol fields', () => {
   const entry = routes[0]
   const existing = { protocol_version: 1, client_id: entry.id, chat_id: 'chat', session_id: 'keep', request_id: 'same-retry', fixed_message_count: 1, fixed_message_types: ['contract'], action: 'sync_rules' }
@@ -204,6 +219,17 @@ test('HTTP aliases accept the per-plugin model and reject an unrelated model', a
   const rejected = await app.request('/clients/model-plugin/v1/chat/completions', { messages, chat_id: 'chat', model: 'other-model' })
   assert.equal(rejected.status, 400)
   assert.equal(rejected.data.error.code, 'model_not_found')
+})
+
+test('HTTP aliases use a fixed chat id for plugins without a current chat', async t => {
+  const entry = { id: 'forum', label: '论坛', taskId: 'default', enabled: true, fixedChatId: 'stb-forum' }
+  const app = await server(t, { clientEndpoints: clientEndpoints([entry]) })
+  const first = await app.request('/clients/forum/v1/chat/completions', { messages })
+  const second = await app.request('/clients/forum/v1/chat/completions', { messages, chat_id: 'ignored-by-fixed-id' })
+  assert.equal(first.status, 200)
+  assert.equal(second.status, 200)
+  assert.deepEqual(app.calls.map(call => call.chatId), ['stb-forum', 'stb-forum'])
+  assert.equal(app.calls[0].taskId, 'default')
 })
 
 test('HTTP aliases never fall back on missing chat, unknown/disabled registration or conflicting client', async t => {

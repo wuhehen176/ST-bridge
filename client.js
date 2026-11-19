@@ -198,7 +198,8 @@ function renderEndpoints(c) {
         h('div', { className: 'bbh-grid2' },
           h(Field, { label: '显示名称' }, h('input', { className: 'bbh-input', value: entry.label, onChange: e => update({ label: e.target.value }) })),
           h(Field, { label: '唯一插件 ID', hint: '小写字母、数字、下划线或短横线；修改 ID 会使用新的会话范围，旧历史保留。' }, h('input', { className: 'bbh-input', value: entry.id, onChange: e => update({ id: e.target.value }) })),
-          h(Field, { label: '默认任务类型' }, h('input', { className: 'bbh-input', value: entry.taskId, onChange: e => update({ taskId: e.target.value }) })),
+          h(Field, { label: '固定 chat_id（可选）', hint: '留空则使用酒馆当前聊天 ID；填写后该插件始终使用这个 ID，适合论坛等没有聊天上下文的页面。修改会切换到新的会话范围，旧历史保留。' },
+            h('input', { className: 'bbh-input', value: entry.fixedChatId ?? '', onChange: e => update({ fixedChatId: e.target.value }) })),
           h(Field, { label: '专属 Skill（可选）', hint: 'kebab-case 名称；修改后已有会话需重置才能切换。' },
             h('input', { className: 'bbh-input', value: entry.skillId ?? '', onChange: e => update({ skillId: e.target.value.trim() }) }))),
         h('div', { className: 'bbh-grid2' },
@@ -250,7 +251,7 @@ function renderEndpoints(c) {
       )
     }),
     h('div', { className: 'bbh-actions' },
-      h('button', { type: 'button', className: 'bbh-btn secondary', onClick: () => setField('clientEndpoints', [...form.clientEndpoints, { id: '', label: '', taskId: 'default', skillId: '', enabled: true, persistentSession: false }]) }, '新增插件接入'),
+      h('button', { type: 'button', className: 'bbh-btn secondary', onClick: () => setField('clientEndpoints', [...form.clientEndpoints, { id: '', label: '', taskId: 'default', fixedChatId: '', skillId: '', enabled: true, persistentSession: false }]) }, '新增插件接入'),
       h('button', { type: 'button', className: 'bbh-btn', disabled: busy, onClick: () => void save() }, busy ? '保存中…' : '保存')),
     h('p', { className: 'bbh-note' }, '停用或删除只影响该地址的新请求，不删除 Agent 历史、不取消正在执行的任务。若设置了允许 client_id 列表，还需允许相应插件 ID。'),
   )
