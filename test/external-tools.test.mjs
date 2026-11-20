@@ -49,7 +49,6 @@ async function start(t, { multi = false, unavailable = false } = {}) {
     create: async options => {
       const definitions = new Map(), listeners = new Map()
       const ctx = { on: (name, fn) => { listeners.set(name, fn); return () => {} }, tools: unavailable ? {} : {
-        presentAs: mode => { assert.equal(mode, 'native'); return () => {} },
         restrict: filter => { assert.deepEqual(filter, { allow: [] }); return () => {} },
         guard: fn => { assert.ok(fn({ name: 'shell' })); assert.equal(fn({ name: 'insertRow' }), undefined); return () => {} },
         register: definition => { definitions.set(definition.name, definition); return () => definitions.delete(definition.name) },
