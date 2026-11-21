@@ -310,6 +310,21 @@ const { renderEndpoints } = require('./endpoints.js')
       React.useEffect(() => { void load() }, [load])
 
       React.useEffect(() => {
+        if (tab !== 'general' || !status?.pairing?.invite) return
+        let cancelled = false
+        let timer
+        const poll = async () => {
+          try {
+            const value = await rpc('status')
+            if (!cancelled) setStatus(value)
+          } catch { /* keep the last known pairing state */ }
+          if (!cancelled) timer = setTimeout(poll, 3000)
+        }
+        timer = setTimeout(poll, 3000)
+        return () => { cancelled = true; clearTimeout(timer) }
+      }, [tab, status?.pairing?.invite?.code, rpc])
+
+      React.useEffect(() => {
         if (tab !== 'advanced' || rawLoaded) return
         let cancelled = false
         void (async () => {
