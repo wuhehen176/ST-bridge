@@ -4,12 +4,12 @@ const h = React.createElement
 function renderEndpoints(c) {
   const {
     Field, Check, status, form, endpointBase, setEndpointBase, setField,
-    modelCatalog, workspaceOptions, agentPresetField, setNotice, setError, busy, save,
+    modelCatalog, workspaceOptions, agentPresetField, setNotice, setError,
   } = c
   return h('div', { className: 'bbh' },
     h('h3', { className: 'bbh-card-title' }, '插件专属接入地址'),
-    h('p', { className: 'bbh-note' }, '每个插件使用独立地址；扩展会带上当前酒馆聊天 ID。模型、预设、工作区和 max_tokens 按插件设置，留空跟随 DSH 默认；已有会话需重置或新建后才切换。开启持续会话时，聊天 ID 只用于快照隔离，不决定共用窗口。'),
-    h(Field, { label: '复制地址时使用的电脑地址', hint: '手机请选择能访问的局域网地址，127.0.0.1 只用于电脑本机。' },
+    h('p', { className: 'bbh-note' }, '每个插件使用独立的 API 地址。模型、预设和工作区的变更在新会话中生效。'),
+    h(Field, { label: 'API 地址使用的主机', hint: '手机连接请选择局域网地址。127.0.0.1 仅供本机使用。' },
       h('select', { className: 'bbh-select', value: endpointBase || status.network?.urls?.[0] || `http://127.0.0.1:${status.service.port}/v1`, onChange: e => setEndpointBase(e.target.value) },
         [...new Set([...(status.network?.urls ?? []), `http://127.0.0.1:${status.service.port}/v1`])].map(value => h('option', { key: value, value }, value)))),
     ...form.clientEndpoints.map((entry, index) => {
@@ -38,8 +38,8 @@ function renderEndpoints(c) {
         : modelCatalog.available === false
           ? `无法读取 DSH 模型列表：${modelCatalog.error || '未知错误'}`
           : modelCatalog.default
-            ? `留空跟随 DSH 默认模型（${modelCatalog.default.provider} / ${modelCatalog.default.model}）。`
-            : '留空跟随 DSH 当前默认模型。'
+            ? `当前默认模型为 ${modelCatalog.default.provider} / ${modelCatalog.default.model}。`
+            : ''
       const knownWorkspace = (workspaceOptions?.workspaces ?? []).some(workspace => workspace.path === entry.cwd)
       const workspaceHint = workspaceOptions === null
         ? '正在读取 DSH 工作区…'
@@ -92,8 +92,8 @@ function renderEndpoints(c) {
             checked: entry.persistentSession === true,
             onChange: persistentSession => update({ persistentSession }),
           })),
-        h('p', { className: 'bbh-note' }, '持续会话开启后，该插件的所有聊天共用一个 DSH 窗口，固定规则以最后一次同步为准。切换开关会清掉该插件旧窗口；关闭后各聊天从新会话开始，不会恢复旧窗口。'),
-        h('input', { className: 'bbh-input', value: address, readOnly: true, 'aria-label': '插件API地址' }),
+        h('p', { className: 'bbh-note' }, '持续会话让同一插件的聊天共用 DSH 窗口，快照仍按聊天隔离。最近一次同步的固定规则生效。切换会清除旧绑定，保留 DSH 历史。'),
+        h(Field, { label: '插件 API 地址' }, h('input', { className: 'bbh-input', value: address, readOnly: true })),
         h('div', { className: 'bbh-actions' },
           h('button', { type: 'button', className: 'bbh-btn secondary', onClick: async () => {
             try { await navigator.clipboard.writeText(address); setNotice('地址已复制；新增或修改接入后请先保存，再用于插件。') }
@@ -103,8 +103,7 @@ function renderEndpoints(c) {
       )
     }),
     h('div', { className: 'bbh-actions' },
-      h('button', { type: 'button', className: 'bbh-btn secondary', onClick: () => setField('clientEndpoints', [...form.clientEndpoints, { id: '', label: '', taskId: 'default', fixedChatId: '', skillId: '', enabled: true, persistentSession: false }]) }, '新增插件接入'),
-      h('button', { type: 'button', className: 'bbh-btn', disabled: busy, onClick: () => void save() }, busy ? '保存中…' : '保存')),
+      h('button', { type: 'button', className: 'bbh-btn secondary', onClick: () => setField('clientEndpoints', [...form.clientEndpoints, { id: '', label: '', taskId: 'default', fixedChatId: '', skillId: '', enabled: true, persistentSession: false }]) }, '新增插件接入')),
     h('p', { className: 'bbh-note' }, '停用或删除只影响该地址的新请求，不删除 Agent 历史、不取消正在执行的任务。若设置了允许 client_id 列表，还需允许相应插件 ID。'),
   )
 }

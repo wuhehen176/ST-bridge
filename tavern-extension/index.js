@@ -157,6 +157,13 @@ function mount() {
     #st-bridge-context-settings pre:empty {display:none}
     #st-bridge-context-settings .stbc-chip {display:inline-flex;align-items:center;gap:5px;border:1px solid var(--SmartThemeBorderColor);border-radius:16px;padding:4px 8px;margin:3px;background:transparent;color:inherit;max-width:100%;overflow-wrap:anywhere}
     #st-bridge-context-settings .stbc-box {border:1px solid var(--SmartThemeBorderColor);border-radius:8px;padding:10px;margin:6px 0}
+    #st-bridge-context-settings details > summary {overflow-wrap:anywhere}
+    #st-bridge-context-settings details[open] > summary {margin-bottom:8px}
+    #st-bridge-context-settings .stbc-group {margin-top:12px}
+    #st-bridge-context-settings .stbc-hint {display:block;line-height:1.45}
+    #st-bridge-context-settings .stbc-feedback {font:inherit;white-space:pre-wrap;overflow-wrap:anywhere;margin:0}
+    #st-bridge-context-settings .stbc-feedback:empty, #st-bridge-context-settings small:empty {display:none}
+    #st-bridge-context-settings [hidden] {display:none}
     #st-bridge-context-settings dialog {width:min(90vw,650px);max-height:80vh;overflow:auto;background:var(--SmartThemeBlurTintColor,#202936);color:var(--SmartThemeBodyColor,#ddd);border:1px solid var(--SmartThemeBorderColor);border-radius:10px;padding:16px}
     #st-bridge-context-settings dialog::backdrop {background:#0009}
     #st-bridge-context-settings .stbc-books {max-height:45vh;overflow:auto;display:flex;flex-direction:column;gap:8px;padding:8px 0}
@@ -167,11 +174,12 @@ function mount() {
       <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
     </div>
     <div class="inline-drawer-content"><div class="stbc-body">
-    <label class="stbc-check"><input type="checkbox" data-id="enabled"><span>仅适配指定的本机桥接</span></label>
-    <label class="stbc-field">桥接地址<input class="text_pole" data-id="base" placeholder="http://127.0.0.1:43121/v1"></label>
-    <button type="button" class="menu_button" data-id="load-endpoints">读取插件专属API地址</button>
+    <label class="stbc-check"><input type="checkbox" data-id="enabled"><span>仅适配此桥接地址</span></label>
+    <label class="stbc-field">桥接地址<input class="text_pole" data-id="base" placeholder="http://127.0.0.1:43121/v1" aria-describedby="stbc-address-error"></label>
+    <p class="stbc-feedback" id="stbc-address-error" data-id="address-error" role="alert"></p>
+    <button type="button" class="menu_button" data-id="load-endpoints">读取插件 API 地址</button>
     <pre data-id="endpoint-list" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre>
-    <button type="button" class="menu_button" data-id="selftest">连接自检（手机 / LAN）</button>
+    <button type="button" class="menu_button" data-id="selftest">检查桥接连接</button>
     <pre data-id="selftest-status" style="white-space:pre-wrap;max-height:200px;overflow:auto"></pre>
     <details class="stbc-box"><summary>输入配对码</summary>
     <label class="stbc-field">设备名<input class="text_pole" data-id="pair-device" placeholder="TauriTavern / iPhone"></label>
@@ -179,11 +187,11 @@ function mount() {
     <button type="button" class="menu_button" data-id="pair-submit">提交配对</button>
     <button type="button" class="menu_button" data-id="pair-cancel">取消等待</button>
     <pre data-id="pair-status" style="white-space:pre-wrap;max-height:160px;overflow:auto"></pre>
-    <small>先在电脑 ST-bridge 面板生成配对码；提交后在电脑点“允许”。设备 token 会保存在扩展设置中。</small></details>
+    <small>在电脑的 ST-bridge 面板生成配对码。提交后回到电脑批准，设备令牌会自动保存。</small></details>
     <details class="stbc-box"><summary>按酒馆聊天自动隔离 DSH 会话</summary>
     <label class="stbc-check"><input type="checkbox" data-id="auto-enabled"><span>自动注入 dsh_session / 改写 chat_id</span></label>
-    <small>专属地址按插件分配身份，下面的默认client_id仅供旧通用/v1兼容，不能自动识别插件。</small>
-    <label class="stbc-field">旧通用地址默认 client_id（无 dsh_session 时）<input class="text_pole" data-id="auto-client" placeholder="yuzi-phone"></label>
+    <small>插件专属地址自带插件身份。下方的默认 client_id 用于未提供 dsh_session 的通用 /v1 请求。</small>
+    <label class="stbc-field">通用地址的默认 client_id<input class="text_pole" data-id="auto-client" placeholder="yuzi-phone"></label>
     <label class="stbc-field">默认 task_id<input class="text_pole" data-id="auto-task" placeholder="default"></label>
     <label class="stbc-field">chat_id 前缀<input class="text_pole" data-id="auto-prefix" placeholder="stb-"></label>
     <label class="stbc-check"><input type="checkbox" data-id="auto-override"><span>覆盖已有 chat_id（仅列出的 client）</span></label>
@@ -193,46 +201,54 @@ function mount() {
       <label class="stbc-field" style="flex:1;min-width:120px">固定规则类型<input class="text_pole" data-id="auto-fixed-types" placeholder="prefix"></label>
     </div>
     <small>chat_id = 前缀 + 当前酒馆聊天 ID。空 chat_id 或宏未展开时不会注入。改写只对列出的 client 生效，柏宝绘不受影响。</small></details>
-    <label class="stbc-field">桥接令牌（仅当前页面内存，可留空复用已观察到的桥接请求）<input class="text_pole" type="password" autocomplete="off" data-id="token"></label>
-    <button type="button" class="menu_button" data-id="load">连接并读取规则档位</button>
+    <label class="stbc-field">桥接令牌<input class="text_pole" type="password" autocomplete="off" data-id="token" aria-describedby="stbc-token-help"></label>
+    <small class="stbc-hint" id="stbc-token-help">配对后自动使用设备令牌。手动填写仅在当前页面有效。</small>
     <label class="stbc-field">请求范围<select class="text_pole" data-id="scope"></select></label>
-    <label class="stbc-field">本范围的发送记录<select class="text_pole" data-id="attempt"></select></label>
-    <label class="stbc-field">手动规则档位<select class="text_pole" data-id="profile"></select></label>
-    <button type="button" class="menu_button" data-id="confirm-profile">确认当前档位用于下一次请求</button>
-    <small>发送副本剔除生图占位块；排除名单另行启用，固定规则和未确认来源的正文保留。字符数不等于 token。</small>
-    <details class="stbc-box"><summary>全局世界书排除（所有请求范围）</summary>
+    <label class="stbc-field">规则档位<select class="text_pole" data-id="profile"></select></label>
+    <button type="button" class="menu_button" data-id="load">读取规则档位</button>
+    <button type="button" class="menu_button" data-id="confirm-profile" hidden>更新所选档位</button>
+    <p class="stbc-feedback" data-id="profile-status" role="status"></p>
+    <details class="stbc-box"><summary>全局世界书排除</summary>
     <label class="stbc-check"><input type="checkbox" data-id="global-material-enabled"><span>启用全局排除</span></label>
-    <small>对本扩展适配到指定桥接的各插件、各聊天生效，与本范围名单叠加。绿灯触发跟随酒馆，不另行筛选。设置保存在当前酒馆／TauriTavern，不自动同步其它设备。</small>
+    <small>适用于此桥接的所有插件和聊天，与当前范围的名单叠加。世界书触发沿用酒馆规则。名单保存在当前设备。</small>
     <button type="button" class="menu_button" data-id="global-edit-excluded">编辑全局整本排除名单</button><div data-id="global-excluded-chips"></div>
     <label class="stbc-field">全局按条目备注名过滤<input class="text_pole" data-id="global-pattern-draft" placeholder="普通文字包含匹配，简单正则如 /^规则/"></label>
     <button type="button" class="menu_button" data-id="global-add-pattern">添加全局条目名规则</button><div data-id="global-pattern-chips"></div>
     <small>只清理发送副本中可准确识别的动态 system 世界书条目；不拦截其它 API 地址，不修改原书。</small>
     <pre data-id="global-material-status" style="white-space:pre-wrap"></pre></details>
-    <details class="stbc-box"><summary>世界书与清洗设置（当前请求范围）</summary>
+    <details class="stbc-box"><summary>当前范围的世界书与清洗</summary>
     <small data-id="material-scope"></small>
-    <label class="stbc-check"><input type="checkbox" data-id="material-enabled"><span>启用本范围的材料筛选与自定义标签清洗</span></label>
-    <div class="stbc-box"><b>本范围排除世界书内容（叠加全局名单）</b>
+    <label class="stbc-check"><input type="checkbox" data-id="material-enabled"><span>启用当前范围的筛选与清洗</span></label>
+    <div class="stbc-group"><b>世界书排除</b>
     <button type="button" class="menu_button" data-id="edit-excluded">编辑整本排除名单</button><div data-id="excluded-chips"></div>
     <label class="stbc-field">按条目备注名过滤<input class="text_pole" data-id="pattern-draft" placeholder="普通文字包含匹配，简单正则如 /^规则/"></label>
     <button type="button" class="menu_button" data-id="add-pattern">添加条目名规则</button><div data-id="pattern-chips"></div></div>
-    <div class="stbc-box"><b>自定义清洗标签</b>
+    <div class="stbc-group"><b>自定义清洗标签</b>
     <label class="stbc-field">标签名<input class="text_pole" data-id="tag-draft" placeholder="例如 snow，不填尖括号"></label>
     <button type="button" class="menu_button" data-id="add-tag">添加清洗标签</button><div data-id="tag-chips"></div>
     <small>发送副本移除成对标签及内容；孤立标签只移除标签本身。bbi_image 内置启用。</small></div>
-    <small>只对动态 system 材料中的完整、唯一世界书正文匹配执行过滤；固定规则和会话正文不按条目名单删除。配置独立于柏宝绘，不修改世界书。</small>
+    <small>只排除完整且唯一匹配的动态世界书条目。固定规则、聊天正文和原世界书都保留。</small>
     <pre data-id="material-status" style="white-space:pre-wrap"></pre></details>
-    <pre data-id="status" style="white-space:pre-wrap;max-height:200px;overflow:auto"></pre>
-    <details><summary>本次发送预览</summary><pre data-id="preview" style="white-space:pre-wrap;max-height:400px;overflow:auto"></pre></details>
-    <details data-id="copy-details"><summary>实际发送副本与清理差异（含聊天私密内容，密钥已隐藏）</summary>
-    <small>只保留最近两份，每份最多 200 万字符；刷新页面即清空。此处是浏览器发送内容，DSH 历史与规则替换在桥接处理。</small>
-    <textarea class="text_pole" rows="16" readonly data-id="actual-body"></textarea>
-    <button type="button" class="menu_button" data-id="copy-body">复制已脱敏副本</button></details>
-    <button type="button" class="menu_button" data-id="receipts">从桥接核对最近请求</button>
-    <details><summary>桥接收件记录（最近 60 次，含未携带适配标记的请求）</summary>
+    <details><summary>发送预览</summary>
+    <label class="stbc-field">发送记录<select class="text_pole" data-id="attempt"></select></label>
+    <p class="stbc-feedback" data-id="status" role="status"></p>
+    <pre data-id="preview" style="white-space:pre-wrap;max-height:400px;overflow:auto"></pre></details>
+    <details data-id="copy-details"><summary>发送副本与清理差异</summary>
+    <small>副本记录浏览器发出的内容。历史和规则由 DSH 桥接继续处理。最多保留最近两份，每份上限 200 万字符，刷新后清空。</small>
+    <textarea class="text_pole" rows="16" readonly data-id="actual-body" aria-label="发送副本与清理差异" hidden></textarea>
+    <small class="stbc-hint" data-id="copy-help" hidden>已隐藏可识别的密钥，副本仍含聊天正文。分享前请检查。</small>
+    <button type="button" class="menu_button" data-id="copy-body" hidden>复制发送副本</button>
+    <p class="stbc-feedback" data-id="copy-status" role="status"></p></details>
+    <details><summary>桥接收件记录</summary>
+    <small>读取最近 60 条，含未携带适配标记的请求。读取记录不调用模型。</small>
+    <button type="button" class="menu_button" data-id="receipts">读取收件记录</button>
+    <p class="stbc-feedback" data-id="receipt-status" role="status"></p>
     <pre data-id="receipt-list" style="white-space:pre-wrap;max-height:400px;overflow:auto"></pre></details>
-    <details><summary>导入本机规则档位（保存到桥接，不写入聊天）</summary>
+    <details><summary>导入规则档位</summary>
+    <small>保存到桥接的档位库，不写入聊天。</small>
     <textarea class="text_pole" rows="8" data-id="import" placeholder='{"version":1,"profiles":[]}'></textarea>
     <button type="button" class="menu_button" data-id="save">校验并覆盖桥接档位库</button>
+    <p class="stbc-feedback" data-id="import-status" role="status"></p>
     <small>仅允许替换明确的 spec/check 固定槽；prefix、contract 保留。正文/数据库没有这些槽时只能用完整兼容档，不猜测替换。</small></details>
     <dialog data-id="book-picker"><b data-id="picker-title"></b>
     <input class="text_pole" data-id="book-search" placeholder="搜索世界书名称">
@@ -242,13 +258,23 @@ function mount() {
     </div></div></div>`
   parent.append(panel)
   const field = id => panel.querySelector(`[data-id="${id}"]`)
-  const status = text => { field('status').textContent = text }
+  const feedback = (id, text) => { field(id).textContent = text }
+  const status = text => feedback('status', text)
   field('enabled').checked = settings.enabled
   field('base').value = settings.base
   field('enabled').onchange = event => { settings.enabled = event.target.checked; save() }
   field('base').onchange = event => {
-    try { settings.base = localBase(event.target.value.trim()); settings.deviceToken = ''; token = ''; profiles = []; previews.clear(); copies.clear(); bridgeReceipts = []; lastScope = ''; lastTrace = ''; token = ''; field('token').value = ''; save(); render() }
-    catch (error) { event.target.value = settings.base; status(error.message) }
+    try {
+      settings.base = localBase(event.target.value.trim())
+      event.target.value = settings.base
+      settings.deviceToken = ''; token = ''; profiles = []; previews.clear(); copies.clear(); bridgeReceipts = []; lastScope = ''; lastTrace = ''
+      field('token').value = ''
+      for (const id of ['address-error', 'profile-status', 'copy-status', 'receipt-status', 'import-status', 'status']) feedback(id, '')
+      save(); render()
+    } catch (error) {
+      event.target.value = settings.base
+      feedback('address-error', `${error.message}。已恢复上一次地址。`)
+    }
   }
   field('token').oninput = event => { token = event.target.value }
   field('load-endpoints').onclick = async () => {
@@ -346,9 +372,9 @@ function mount() {
           save()
           try {
             await fetch(`${pairState.base}/bridge/pair/ack`, { method: 'POST', headers: ackHeaders(pairState) })
-            pairStatus('已配对：设备 token 已保存。')
+            pairStatus('已配对，设备令牌已保存。')
           } catch {
-            pairStatus('已配对：token 已保存，但 ACK 失败；可直接使用。')
+            pairStatus('设备令牌已保存，可以使用。配对回执发送失败。')
           }
           stopPair()
           return
@@ -491,7 +517,8 @@ function mount() {
       try { const [client, chat, task] = JSON.parse(key); if (!scopes.has(key)) scopes.set(key, `${client} / ${task} / ${chat}`) } catch { /* Ignore malformed old scope IDs. */ }
     }
     if (!lastScope && scopes.size) lastScope = scopes.keys().next().value
-    choices(field('scope'), [...scopes], lastScope)
+    choices(field('scope'), scopes.size ? [...scopes] : [['', '发送请求后可选']], lastScope)
+    field('scope').disabled = scopes.size === 0
     const policy = policyNow(), globalPolicy = policyNow('global')
     field('global-material-enabled').checked = settings.globalMaterials.enabled === true
     chips('global-excluded-chips', 'excluded', globalPolicy.excluded, 'global'); chips('global-pattern-chips', 'patterns', globalPolicy.patterns, 'global')
@@ -502,32 +529,49 @@ function mount() {
     const attempts = [...previews.values()].filter(p => p.scope === lastScope).reverse()
     if (!attempts.some(p => p.trace_id === lastTrace)) lastTrace = attempts[0]?.trace_id || ''
     const current = previews.get(lastTrace)
-    choices(field('attempt'), attempts.map(p => [p.trace_id, `${p.sent_at.slice(11, 19)} · ${p.request_id || p.trace_id} · ${p.responseStatus || '等待中'}`]), lastTrace)
-    field('receipt-list').textContent = bridgeReceipts.length ? JSON.stringify(bridgeReceipts, null, 2) : '点击上方按钮读取；不调用模型。未携带适配标记的请求可能绕过入口、缺少协议或来自旧版客户端。'
-    const showCopy = () => { field('actual-body').value = copies.get(lastTrace) || '此份全文已过期或未保留；统计记录仍在。' }
+    choices(field('attempt'), attempts.length
+      ? attempts.map(p => [p.trace_id, `${p.sent_at.slice(11, 19)} · ${p.request_id || p.trace_id} · ${p.responseStatus || '等待中'}`])
+      : [['', '暂无发送记录']], lastTrace)
+    field('attempt').disabled = attempts.length === 0
+    field('receipt-list').textContent = bridgeReceipts.length ? JSON.stringify(bridgeReceipts, null, 2) : ''
+    const showCopy = () => {
+      const text = copies.get(lastTrace)
+      field('actual-body').value = text || ''
+      for (const id of ['actual-body', 'copy-help', 'copy-body']) field(id).hidden = !text
+      feedback('copy-status', text ? '' : current ? '这次请求的副本已过期或未保留。' : '暂无发送副本。')
+    }
     field('copy-details').ontoggle = () => { if (field('copy-details').open) showCopy(); else field('actual-body').value = '' }
     if (field('copy-details').open) showCopy()
     const available = profiles.filter(p => p.client_id === current?.client_id && p.task_id === current?.task_id)
     const selection = settings.selections[lastScope]
     const selected = typeof selection === 'string' ? selection : selection?.id || 'original'
+    const selectedProfile = available.find(p => p.id === selected)
     const values = [['original', '完整兼容（原始规则）'], ...available.map(p => [p.id, p.label])]
     if (selected !== 'original' && !available.some(p => p.id === selected)) values.push([selected, `${selected}（请连接桥接核对）`])
     choices(field('profile'), values, selected)
     field('profile').disabled = !current
-    if (!current) { field('preview').textContent = '尚未观察到匹配地址且带 dsh_session 的请求。'; return }
+    field('confirm-profile').hidden = !current || !selectedProfile || selectedProfile.hash === selection?.hash
+    if (!current) {
+      status('')
+      field('preview').textContent = '暂无此桥接的生成记录。通过插件发起生成后可查看。'
+      return
+    }
     field('preview').textContent = JSON.stringify(current, null, 2)
     const cleaned = (current.cleanup?.removed_chars > 0 ? `已清理 ${current.cleanup.removed_regions} 处标签／块，减少 ${current.cleanup.removed_chars} 字符；` : '') + (current.worldbook_filter?.removed_chars > 0 ? `世界书过滤减少 ${current.worldbook_filter.removed_chars} 字符；` : '')
     status(current.error ? `本次未完成：${current.error}` : current.verified ? `${cleaned}桥接本次收件回执已匹配：trace 与 messages 摘要一致。${current.receipt.status === 'received' ? '生成仍在处理中。' : ''}` : current.receipt?.messages_match === false ? `${cleaned}桥接已收到，但消息摘要不同；请核对代理后处理，不能据客户端预览确认最终消息。` : current.responseStatus ? `${cleaned}尚无本次匹配回执；桥接可能未升级或代理未透传字段，可读取桥接收件记录核对。` : `${cleaned}已记录客户端发送副本；可读取收件记录，无需等生成完成。`)
   }
-  field('scope').onchange = event => { lastScope = event.target.value; render() }
+  field('scope').onchange = event => { lastScope = event.target.value; feedback('profile-status', ''); render() }
   field('attempt').onchange = event => { lastTrace = event.target.value; render() }
   field('copy-body').onclick = async () => {
     const text = copies.get(lastTrace)
-    if (!text) { status('此份全文已过期或未保留。'); return }
-    try { await navigator.clipboard.writeText(text); status('已复制脱敏发送副本；其中仍含聊天私密内容。') }
-    catch { field('actual-body').focus(); field('actual-body').select(); status('剪贴板不可用，可手动复制文本框。') }
+    if (!text) { feedback('copy-status', '这次请求的副本已过期或未保留。'); return }
+    try { await navigator.clipboard.writeText(text); feedback('copy-status', '已复制发送副本。') }
+    catch { field('actual-body').focus(); field('actual-body').select(); feedback('copy-status', '剪贴板不可用，可手动复制。') }
   }
   field('receipts').onclick = async () => {
+    const button = field('receipts')
+    button.disabled = true
+    feedback('receipt-status', '正在读取收件记录…')
     try {
       bridgeReceipts = (await api('receipts')).receipts
       for (const receipt of bridgeReceipts) {
@@ -536,29 +580,34 @@ function mount() {
           verified: receipt.messages_match === true && receipt.messages_digest === previous.messages_digest })
       }
       render()
-      if (!previews.has(lastTrace)) status(`已读取 ${bridgeReceipts.length} 条桥接收件记录；不调用模型。`)
-    } catch (error) { status(`收件核对失败：${error.message}；此功能需要部署新版桥接。`) }
+      feedback('receipt-status', bridgeReceipts.length ? `已读取 ${bridgeReceipts.length} 条收件记录。` : '桥接暂无收件记录。')
+    } catch (error) { feedback('receipt-status', `读取收件记录失败：${error.message}`) }
+    finally { button.disabled = false }
   }
   const selectProfile = () => {
-    if (!lastScope) return
+    if (field('profile').disabled) return
     const id = field('profile').value
-    if (id !== 'original' && !profiles.some(p => p.id === id)) { status('请先连接桥接读取此档位，再确认。'); return }
-    settings.selections[lastScope] = id === 'original' ? 'original' : { id, hash: profiles.find(p => p.id === id)?.hash }
-    save(); status('已保存到该客户端／聊天／任务范围；从下一次新请求生效，不改动正在执行的请求。')
+    const profile = profiles.find(p => p.id === id)
+    if (id !== 'original' && !profile) { feedback('profile-status', '请先读取当前规则档位。'); return }
+    settings.selections[lastScope] = id === 'original' ? 'original' : { id, hash: profile.hash }
+    save(); render(); feedback('profile-status', '已保存当前范围的档位，下次请求生效。')
   }
   field('profile').onchange = selectProfile
   field('confirm-profile').onclick = selectProfile
   field('load').onclick = async () => {
-    try { profiles = (await api('profiles')).profiles; render(); status(`已连接：${profiles.length} 个本机档位。未提供精简正文时，完整兼容档保持原请求。`) }
-    catch (error) { status(`连接失败：${error.message}；请核对桥接版本和令牌。`) }
+    try {
+      profiles = (await api('profiles')).profiles
+      render()
+      feedback('profile-status', field('confirm-profile').hidden ? `已读取 ${profiles.length} 个档位。` : '所选档位有更新。确认后，下次请求使用新版。')
+    } catch (error) { feedback('profile-status', `读取档位失败：${error.message}。请核对桥接地址和令牌。`) }
   }
   field('save').onclick = async () => {
     try {
       const body = JSON.parse(field('import').value)
       if (!window.confirm('覆盖本机桥接规则档位库？已有文件会备份；不修改聊天或世界书。')) return
       profiles = (await api('profiles', body)).profiles
-      field('import').value = ''; render(); status('档位库已保存。请选定范围和档位；新请求才会采用。')
-    } catch (error) { status(`未保存：${error.message}`) }
+      field('import').value = ''; render(); feedback('import-status', '已保存档位库。请选择请求范围和档位，下次请求生效。')
+    } catch (error) { feedback('import-status', `未保存：${error.message}`) }
   }
   render()
 }

@@ -38,6 +38,15 @@ test('Tavern settings can save global exclusions before any scope exists, with i
   )
   const panel = root.children[0], field = id => panel.querySelector(`[data-id="${id}"]`)
   const settings = context.extensionSettings.st_bridge_context_v1
+  const addressInput = field('base')
+  addressInput.value = 'http://127.0.0.1:43121/wrong'
+  addressInput.onchange({ target: addressInput })
+  assert.equal(addressInput.value, settings.base)
+  assert.match(field('address-error').textContent, /已恢复上一次地址/)
+  assert.equal(field('status').textContent, '')
+  addressInput.value = 'http://127.0.0.1:43122/v1'
+  addressInput.onchange({ target: addressInput })
+  assert.equal(field('address-error').textContent, '')
   assert.equal(field('material-enabled').disabled, true)
   assert.equal(field('global-edit-excluded').disabled, false)
   assert.equal(field('edit-green'), null)

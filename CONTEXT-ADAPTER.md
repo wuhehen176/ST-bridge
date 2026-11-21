@@ -521,7 +521,7 @@ device: pending_delivery / active / revoked
 面板「服务与安全」新增：
 
 ```text
-[启用局域网 / 手机访问]
+[启用局域网访问]
 ```
 
 点击后：

@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { setTimeout as delay } from 'node:timers/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import { PanelController, applyPersistedSettings, registerPanelRpc, sanitizeSettings } from '../lib/panel.js'
-import { normalizeConfig } from '../index.js'
+import { apply, normalizeConfig } from '../index.js'
 
 function tempDir() {
   return mkdtempSync(join(tmpdir(), 'bbh-panel-'))
@@ -13,6 +14,34 @@ function tempDir() {
 function baseConfig(dir) {
   return normalizeConfig({ stateDir: dir, cwd: dir, port: 43121 })
 }
+
+test('saving a different host keeps the active listener address until restart', { timeout: 5000 }, async t => {
+  const dir = tempDir()
+  let rpc, dispose
+  t.after(() => {
+    dispose?.()
+    rmSync(dir, { recursive: true, force: true })
+  })
+  apply({
+    effect(start) { dispose = start() },
+    connection: { rpc: { handle(_channel, listener) { rpc = listener; return () => {} } } },
+  }, { stateDir: dir, cwd: dir, host: '127.0.0.1', port: 0 })
+  let status = (await rpc('status')).value
+  for (let attempt = 0; !status.active && attempt < 100; attempt++) {
+    await delay(10)
+    status = (await rpc('status')).value
+  }
+  assert.equal(status.active?.host, '127.0.0.1')
+
+  const saved = (await rpc('save', { host: 'localhost' })).value
+  assert.equal(saved.restart_required, true)
+  assert.equal(saved.status.service.host, 'localhost')
+  assert.deepEqual(saved.status.active, status.active)
+
+  const restarted = await rpc('action', { action: 'restart' })
+  assert.equal(restarted.ok, true)
+  assert.equal((await rpc('status')).value.active?.host, 'localhost')
+})
 
 test('sanitizeSettings validates and normalizes panel fields', () => {
   const dir = tempDir()

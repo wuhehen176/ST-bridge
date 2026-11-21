@@ -132,17 +132,20 @@ export function apply(ctx, rawConfig) {
     const pairing = new PairingService({ file: join(config.stateDir, 'devices.json'), log })
     const engine = new BridgeEngine(ctx, config, store, log)
     let activeServer
+    let activeHost
     let running = false
     const serverControl = {
       isRunning: () => running,
       address: () => running && activeServer
-        ? { host: config.host, port: activeServer.server.address()?.port ?? config.port }
+        ? { host: activeHost, port: activeServer.server.address()?.port ?? config.port }
         : null,
       async start() {
         if (activeServer) return
         const next = createBridgeServer({ engine, config, log, pairing })
+        const host = config.host
         await next.listen()
         activeServer = next
+        activeHost = host
         running = true
       },
       async stop() {

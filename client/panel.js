@@ -4,6 +4,12 @@ const { CSS } = require('./theme.js')
 const { failureText, shortSession, Field, Check, formFrom } = require('./helpers.js')
 const { renderEndpoints } = require('./endpoints.js')
 
+function needsRestart(status) {
+  if (!status?.active) return false
+  const { active, service } = status
+  return active.host !== service.host || (service.port !== 0 && active.port !== service.port)
+}
+
     function Panel(props) {
       const rpcRef = React.useRef(props.rpcCall)
       rpcRef.current = props.rpcCall
@@ -14,6 +20,7 @@ const { renderEndpoints } = require('./endpoints.js')
       const [error, setError] = React.useState('')
       const [notice, setNotice] = React.useState('')
       const [rules, setRules] = React.useState(null)
+      const rulesRef = React.useRef(null)
       const [filter, setFilter] = React.useState('')
       const [dangerText, setDangerText] = React.useState('')
       const [rawText, setRawText] = React.useState('')
@@ -45,6 +52,10 @@ const { renderEndpoints } = require('./endpoints.js')
       }, [rpc])
 
       React.useEffect(() => { void load() }, [load])
+
+      React.useEffect(() => {
+        rulesRef.current?.scrollIntoView({ block: 'nearest' })
+      }, [rules, tab])
 
       React.useEffect(() => {
         if (tab !== 'general' || !status?.pairing?.invite) return
@@ -109,7 +120,7 @@ const { renderEndpoints } = require('./endpoints.js')
         setNotice('')
         try {
           const message = await operation()
-          setNotice(message || '已完成')
+          setNotice(message ?? '')
           await load()
           return true
         } catch (err) {
@@ -173,16 +184,14 @@ const { renderEndpoints } = require('./endpoints.js')
         }
         if (form.authToken.trim() !== '') payload.authToken = form.authToken.trim()
         if (form.clearAuthToken) payload.clearAuthToken = true
-        const value = await rpc('save', { settings: payload })
+        const result = await rpc('save', { settings: payload })
         setRawLoaded(false)
-        return value.restart_required
-          ? '设置已保存。host/port 已改变，请点击「重启桥接」后生效。'
-          : '设置已保存并即时生效。'
+        return needsRestart(result.status) ? '' : '设置已保存。'
       })
 
       const action = (name, payload = {}) => run(`操作 ${name}`, async () => {
         await rpc('action', { action: name, ...payload })
-        return '操作完成。'
+        return name === 'restart' ? '桥接已重启。' : '操作完成。'
       })
 
       const saveAndRestart = async () => {
@@ -197,7 +206,7 @@ const { renderEndpoints } = require('./endpoints.js')
             chat_id: chat.chat_id,
             task_id: chat.task_id,
           })
-          setRules(value)
+          setRules({ ...value, tab })
           setError('')
         } catch (err) {
           setError(`读取规则失败：${err instanceof Error ? err.message : String(err)}`)
@@ -244,13 +253,13 @@ const { renderEndpoints } = require('./endpoints.js')
       })
 
       const startPairing = () => run('生成配对码', async () => {
-        const value = await rpc('action', { action: 'pair_start' })
-        return `配对码：${value.code}；${Math.max(1, Math.round((value.expiresAt - Date.now()) / 60000))} 分钟内有效。在客户端输入该码后，在面板点“允许”。`
+        await rpc('action', { action: 'pair_start' })
+        return '配对码已生成。'
       })
 
       const approvePairing = pairId => run('批准设备', async () => {
         await rpc('action', { action: 'pair_approve', pairId })
-        return '已批准。客户端会自动领取设备 token。'
+        return '已批准。客户端会自动领取设备令牌。'
       })
 
       const rejectPairing = pairId => run('拒绝设备', async () => {
@@ -260,7 +269,7 @@ const { renderEndpoints } = require('./endpoints.js')
 
       const revokeDevice = deviceId => run('撤销设备', async () => {
         await rpc('action', { action: 'device_revoke', deviceId })
-        return '设备已撤销，其 token 立即失效。'
+        return '设备已撤销，设备令牌立即失效。'
       })
 
       const showLogPath = async () => {
@@ -290,14 +299,15 @@ const { renderEndpoints } = require('./endpoints.js')
         } catch {
           throw new Error('不是合法 JSON')
         }
-        const value = await rpc('save_raw', { settings: parsed })
+        const result = await rpc('save_raw', { settings: parsed })
         setRawLoaded(false)
-        return value.restart_required ? '已保存；host/port 需要重启桥接后生效。' : '原始配置已保存。'
+        return needsRestart(result.status) ? '' : '已保存原始配置。'
       })
 
       const chats = status?.chats ?? []
       const dirty = savedFingerprint !== '' && JSON.stringify(form) !== savedFingerprint
-      const showSaveBar = status !== null && !['presets', 'advanced'].includes(tab)
+      const restartPending = needsRestart(status)
+      const addressChanged = status && (form.host.trim() !== status.service.host || Number(form.port) !== status.service.port)
       const filtered = chats.filter(chat => {
         const needle = filter.trim().toLowerCase()
         if (!needle) return true
@@ -314,7 +324,7 @@ const { renderEndpoints } = require('./endpoints.js')
             h('input', { className: 'bbh-input', value, onChange: e => onChange(e.target.value) }))
         }
         const hint = value === ''
-          ? `未选择时跟随 DSH 默认预设${info?.defaultId ? `（${info.defaultId}）` : ''}；工具跟随所选预设，执行权限由 DSH 策略决定。`
+          ? '工具跟随所选预设，执行权限由 DSH 策略决定。'
           : selected?.broken
             ? `当前预设不可用：${selected.broken}`
             : selected?.description || (info === null
@@ -342,7 +352,7 @@ const { renderEndpoints } = require('./endpoints.js')
       const tabs = [
         ['general', '服务'],
         ['endpoints', '插件接入'],
-        ['clients', `客户端 (${chats.length})`],
+        ['clients', `会话绑定（${chats.length}）`],
         ['presets', '固定预设'],
         ['advanced', '高级'],
       ]
@@ -361,8 +371,8 @@ const { renderEndpoints } = require('./endpoints.js')
           : h('div', { className: 'bbh-status' },
               h('span', { className: status.running ? 'bbh-dot' : 'bbh-dot off' }),
               h('strong', null, status.running ? '运行中' : '未运行'),
-              h('span', { className: 'bbh-pill' }, `v${status.version}`),
-              h('span', { className: 'bbh-pill' }, status.active ? `${status.active.host}:${status.active.port}` : '未监听'),
+              h('span', { className: 'bbh-status-meta' }, status.active ? `${status.active.host}:${status.active.port}` : '未监听'),
+              h('span', { className: 'bbh-status-meta' }, `v${status.version}`),
               h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => void load() }, '刷新'),
             ),
 
@@ -383,34 +393,65 @@ const { renderEndpoints } = require('./endpoints.js')
         error ? h('p', { className: 'bbh-error' }, error) : null,
         notice ? h('p', { className: 'bbh-notice' }, notice) : null,
 
-        showSaveBar ? h('div', { className: 'bbh-savebar' },
-          h('span', { className: dirty ? 'bbh-savebar-state dirty' : 'bbh-savebar-state clean' },
-            dirty ? '● 有未保存修改' : '✓ 当前设置已保存'),
+        dirty || restartPending ? h('div', { className: 'bbh-savebar' },
+          h('span', { className: 'bbh-savebar-state' }, dirty
+            ? '有未保存的修改' : '设置已保存，重启后生效'),
           h('div', { className: 'bbh-actions' },
-            h('span', { className: 'bbh-note' }, '关闭设置窗口不会自动保存。'),
-            h('button', { type: 'button', className: 'bbh-btn', disabled: busy || !dirty, onClick: () => void save() }, busy ? '保存中…' : '保存设置'),
-            h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy || !dirty, onClick: () => void saveAndRestart() }, '保存并重启'),
+            dirty ? h('button', { type: 'button', className: 'bbh-btn', disabled: busy, onClick: () => void save() }, busy ? '保存中…' : '保存设置') : null,
+            dirty && (addressChanged || restartPending)
+              ? h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => void saveAndRestart() }, '保存并重启') : null,
+            !dirty && restartPending
+              ? h('button', { type: 'button', className: 'bbh-btn', disabled: busy, onClick: () => void action('restart') }, '重启桥接') : null,
           ),
         ) : null,
 
         status === null ? null : tab === 'general' ? h('div', { className: 'bbh-card' },
           h('h3', { className: 'bbh-card-title' }, '服务与安全'),
-          h('p', { className: 'bbh-note' }, '手机 / TauriTavern 访问：开启后监听 0.0.0.0 并自动生成令牌；需在防火墙放行端口，且只建议在局域网或私有网络使用。'),
           status.network?.mobileEnabled ? h('div', null,
             h('p', { className: 'bbh-note' }, `当前局域网地址：${(status.network.urls || []).join('  ') || '未检测到 IPv4 地址'}；令牌${status.network.tokenSet ? '已设置' : '未设置'}。`),
             h('div', { className: 'bbh-actions' },
               h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => void disableMobile() }, '关闭局域网访问'),
             ),
-          ) : h('div', { className: 'bbh-actions' },
-            h('button', { type: 'button', className: 'bbh-btn', disabled: busy, onClick: () => void enableMobile() }, '启用局域网 / 手机访问'),
+          ) : h('div', { className: 'bbh-box' },
+            h('p', { className: 'bbh-note' }, '开启局域网访问会重启桥接，并在缺少令牌时生成令牌。手机连接时，请在防火墙放行端口。'),
+            h('div', { className: 'bbh-actions' },
+              h('button', { type: 'button', className: 'bbh-btn', disabled: busy, onClick: () => void enableMobile() }, '启用局域网访问'),
+            ),
+          ),
+          h('div', { className: 'bbh-box' },
+            h('h4', { className: 'bbh-card-title' }, '设备配对'),
+            h('p', { className: 'bbh-note' }, '在客户端输入配对码并提交，再回到这里批准。撤销设备后，设备令牌立即失效。'),
+            h('div', { className: 'bbh-actions' },
+              h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => void startPairing() }, '生成配对码'),
+            ),
+            status.pairing?.invite
+              ? h('p', { className: 'bbh-notice' }, `当前配对码：${status.pairing.invite.code}（${new Date(status.pairing.invite.expiresAt).toLocaleTimeString()} 过期）`)
+              : null,
+            status.pairing?.requests?.length
+              ? status.pairing.requests.map(request => h('div', { className: 'bbh-actions', key: request.pairId },
+                h('span', null, `${request.deviceName || '未命名设备'}  ${request.ip || ''}  ${new Date(request.createdAt).toLocaleTimeString()}`),
+                request.status === 'approved_pending_delivery'
+                  ? h('span', { className: 'bbh-note' }, '已批准，等待客户端领取令牌')
+                  : h('div', { className: 'bbh-actions' },
+                    h('button', { type: 'button', className: 'bbh-btn', disabled: busy, onClick: () => void approvePairing(request.pairId) }, '允许'),
+                    h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => void rejectPairing(request.pairId) }, '拒绝'),
+                  ),
+              ))
+              : null,
+            status.pairing?.devices?.length
+              ? status.pairing.devices.map(device => h('div', { className: 'bbh-actions', key: device.id },
+                h('span', null, `${device.name}  ${device.ip || ''}  最近 ${device.lastSeenAt ? new Date(device.lastSeenAt).toLocaleTimeString() : '未使用'}`),
+                h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => void revokeDevice(device.id) }, '撤销'),
+              ))
+              : h('p', { className: 'bbh-note' }, '还没有已配对设备。'),
           ),
           h('div', { className: 'bbh-grid2' },
-            h(Field, { label: '监听地址', hint: '默认仅 127.0.0.1；局域网需开启 allowRemote 并设置 token。' },
+            h(Field, { label: '监听地址', hint: '默认仅本机可访问。' },
               h('input', { className: 'bbh-input', value: form.host, onChange: e => setField('host', e.target.value) })),
-            h(Field, { label: '端口', hint: '修改后需要重启桥接服务，并同步更新各客户端的 Base URL。' },
+            h(Field, { label: '端口', hint: '修改后请重启桥接并更新客户端的 API 地址。' },
               h('input', { className: 'bbh-input', type: 'number', min: 1, max: 65535, value: form.port, onChange: e => setField('port', e.target.value) })),
           ),
-          h(Field, { label: 'Bearer token', hint: status.service.authTokenSet ? '已设置。留空不修改；点击清除可移除。修改后需同步客户端 API Key。' : '未设置。填写后所有 API 请求必须带 Authorization，并同步客户端 API Key。' },
+          h(Field, { label: '桥接令牌', hint: form.clearAuthToken ? '保存设置后清除现有令牌。' : '手动填写后保存生效。生成或更换会立即生效，请更新客户端的 API Key。' },
             h('div', { className: 'bbh-actions' },
               h('input', {
                 className: 'bbh-input',
@@ -424,41 +465,14 @@ const { renderEndpoints } = require('./endpoints.js')
                 className: 'bbh-btn secondary',
                 disabled: busy || (!status.service.authTokenSet && !form.authToken && !form.clearAuthToken),
                 onClick: () => setForm(current => ({ ...current, authToken: '', clearAuthToken: true })),
-              }, form.clearAuthToken ? '将清除' : '清除'),
+              }, form.clearAuthToken ? '待清除' : '保存后清除'),
               h('button', {
                 type: 'button',
                 className: 'bbh-btn secondary',
                 disabled: busy,
                 onClick: () => void rotateAuthToken(),
-              }, '生成'),
+              }, status.service.authTokenSet ? '更换令牌' : '生成令牌'),
             ),
-          ),
-          h('div', { className: 'bbh-box' },
-            h('h4', null, '配对码'),
-            h('p', { className: 'bbh-note' }, '生成一次性配对码；客户端提交后，在这里批准设备。设备令牌只保存哈希，撤销后立即失效。'),
-            h('div', { className: 'bbh-actions' },
-              h('button', { type: 'button', className: 'bbh-btn', disabled: busy, onClick: () => void startPairing() }, '生成配对码'),
-            ),
-            status.pairing?.invite
-              ? h('p', { className: 'bbh-notice' }, `当前配对码：${status.pairing.invite.code}（${new Date(status.pairing.invite.expiresAt).toLocaleTimeString()} 过期）`)
-              : h('p', { className: 'bbh-note' }, '没有活动配对码。'),
-            status.pairing?.requests?.length
-              ? status.pairing.requests.map(request => h('div', { className: 'bbh-actions', key: request.pairId },
-                h('span', null, `${request.deviceName || '未命名设备'}  ${request.ip || ''}  ${new Date(request.createdAt).toLocaleTimeString()}`),
-                request.status === 'approved_pending_delivery'
-                  ? h('span', { className: 'bbh-note' }, '已批准，等待客户端领取令牌')
-                  : h('div', { className: 'bbh-actions' },
-                    h('button', { type: 'button', className: 'bbh-btn', disabled: busy, onClick: () => void approvePairing(request.pairId) }, '允许'),
-                    h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => void rejectPairing(request.pairId) }, '拒绝'),
-                  ),
-              ))
-              : h('p', { className: 'bbh-note' }, '没有待批准设备。'),
-            status.pairing?.devices?.length
-              ? status.pairing.devices.map(device => h('div', { className: 'bbh-actions', key: device.id },
-                h('span', null, `${device.name}  ${device.ip || ''}  最近 ${device.lastSeenAt ? new Date(device.lastSeenAt).toLocaleTimeString() : '未使用'}`),
-                h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => void revokeDevice(device.id) }, '撤销'),
-              ))
-              : h('p', { className: 'bbh-note' }, '还没有已授权设备。'),
           ),
           h('div', { className: 'bbh-grid2' },
             h(Field, { label: '请求超时（毫秒）' },
@@ -470,17 +484,14 @@ const { renderEndpoints } = require('./endpoints.js')
             h('textarea', { className: 'bbh-textarea', rows: 3, value: form.corsText, onChange: e => setField('corsText', e.target.value) })),
           h(Check, { checked: form.allowLegacyPlain, onChange: value => setField('allowLegacyPlain', value), label: '允许不带 dsh_session 的旧式普通补全', hint: '默认关闭，避免健康检查创建正式会话。' }),
           h(Check, { checked: form.sessionOnStale, onChange: value => setField('sessionOnStale', value), label: '失效 session_id 自动新建会话', hint: '仅在该作用域已无绑定时生效；避免重置后插件仍发旧 ID 导致 410。' }),
-          h(Check, { checked: form.sessionOnArchived, onChange: value => setField('sessionOnArchived', value), label: '归档会话自动新建', hint: '绑定会话被归档时忽略旧会话，直接新建。' }),
+          h(Check, { checked: form.sessionOnArchived, onChange: value => setField('sessionOnArchived', value), label: '绑定会话归档后自动新建' }),
           h(Check, { checked: form.contextOverflow, onChange: value => setField('contextOverflow', value), label: '上下文超限重建会话', hint: '收到 413 context_length_exceeded 时清空绑定并新建；仍有单轮正文超限的可能。' }),
           h(Field, { label: '瞬时错误重试次数', hint: '429/5xx/超时，且本轮尚未产生 user 消息时重试；0 关闭。' },
             h('input', { className: 'bbh-input', type: 'number', min: 0, max: 2, value: form.transientRetry, onChange: e => setField('transientRetry', e.target.value) })),
-          h(Check, { checked: form.allowRemote, onChange: value => setField('allowRemote', value), label: '允许绑定非本机地址', hint: '高风险，仅在已有 token 与网络隔离时使用。' }),
+          h(Check, { checked: form.allowRemote, onChange: value => setField('allowRemote', value), label: '允许绑定非本机地址', hint: '仅在设置了桥接令牌且网络隔离时使用。' }),
           h(Check, { checked: form.inputCleanupEnabled, onChange: value => setField('inputCleanupEnabled', value), label: '桥接侧清理完整标签块', hint: '兜底处理绕过浏览器适配的请求；只删完整成对标签，孤立/跨消息保留并记录。' }),
-          h(Field, { label: '清理标签', hint: `逗号分隔，默认 ${form.defaultInputCleanupTags.join(', ') || '由服务端提供'}。修改后点右侧「保存」或上方「保存设置」写入。` },
-            h('div', { className: 'bbh-actions' },
-              h('input', { className: 'bbh-input', value: form.inputCleanupTags, onChange: e => setField('inputCleanupTags', e.target.value) }),
-              h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => void save() }, '保存'),
-            )),
+          h(Field, { label: '清理标签', hint: `用逗号分隔。默认 ${form.defaultInputCleanupTags.join(', ') || '由服务端提供'}。` },
+            h('input', { className: 'bbh-input', value: form.inputCleanupTags, onChange: e => setField('inputCleanupTags', e.target.value) })),
           h('div', { className: 'bbh-grid2' },
             h(Field, { label: '追加包装格式', hint: 'nonce = 短分隔符；tagged = 原 ST_BRIDGE_MESSAGE。' },
               h('input', { className: 'bbh-input', value: form.appendFormat, onChange: e => setField('appendFormat', e.target.value) })),
@@ -501,7 +512,7 @@ const { renderEndpoints } = require('./endpoints.js')
           ),
           h('details', { className: 'bbh-fold', open: form.snapshotEnabled },
             h('summary', null, '快照差分：删除与上一轮相同的块'),
-            h('p', { className: 'bbh-note' }, 'auto 按段落切；marker 用专属 B/E 标记包住每段。只删除开头/结尾完整相同的块；标记不配对时整段发送。'),
+            h('p', { className: 'bbh-note' }, '只删除开头或结尾完整相同的块。标记未配对时发送整段。'),
             h(Check, { checked: form.snapshotEnabled, onChange: value => setField('snapshotEnabled', value), label: '启用快照差分' }),
             h('div', { className: 'bbh-grid2' },
               h(Field, { label: '切块模式', hint: 'auto = 自动按段落切；marker = 用 B/E 标记包住每段。' },
@@ -548,30 +559,27 @@ const { renderEndpoints } = require('./endpoints.js')
 
         status === null ? null : tab === 'endpoints' ? renderEndpoints({
           Field, Check, status, form, endpointBase, setEndpointBase, setField,
-          modelCatalog, workspaceOptions, agentPresetField, setNotice, setError, busy, save,
+          modelCatalog, workspaceOptions, agentPresetField, setNotice, setError,
         }) : null,
 
         status === null ? null : tab === 'clients' ? h('div', { className: 'bbh-card' },
           h('h3', { className: 'bbh-card-title' }, '客户端与绑定'),
-          h('p', { className: 'bbh-note' }, '默认按 client_id + chat_id + task_id 隔离；开启持续会话的插件只按 client_id 共用一个窗口。重置只解除桥接绑定，不删除 DSH 会话历史；下次生成会新建会话。'),
+          h('p', { className: 'bbh-note' }, '默认按插件、聊天和任务绑定。开启持续会话后，同一个插件共用 DSH 窗口。'),
           h(Field, { label: '允许的 client_id', hint: '每行一个，留空允许所有插件；写入后其它 client_id 会返回 403。' },
             h('textarea', { className: 'bbh-textarea', rows: 3, value: form.allowedClientsText, onChange: e => setField('allowedClientsText', e.target.value) })),
-          h('div', { className: 'bbh-actions' },
-            h('input', { className: 'bbh-input', style: { maxWidth: '320px' }, placeholder: '筛选 client / chat / task / 标题', value: filter, onChange: e => setFilter(e.target.value) }),
-            h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => void load() }, '刷新'),
-          ),
+          h('input', { className: 'bbh-input', 'aria-label': '筛选会话绑定', placeholder: '按插件、聊天、任务或标题筛选', value: filter, onChange: e => setFilter(e.target.value) }),
           filtered.length === 0
-            ? h('p', { className: 'bbh-note' }, chats.length === 0 ? '还没有绑定。客户端首次 generate 后会出现在这里。' : '没有匹配项。')
+            ? h('p', { className: 'bbh-note' }, chats.length === 0 ? '还没有会话绑定。通过插件发起生成后可在这里查看。' : '没有匹配的绑定。')
             : h('div', { className: 'bbh-list' },
                 filtered.map(chat => h('div', { key: `${chat.client_id}\u0000${chat.chat_id}\u0000${chat.task_id}`, className: 'bbh-item' },
                   h('div', { className: 'bbh-item-main' },
-                    h('div', { className: 'bbh-item-title' }, `${chat.client_label} · ${chat.chat_id}${chat.task_id !== 'default' ? ` · ${chat.task_id}` : ''}`),
-                    h('div', { className: 'bbh-item-sub' }, chat.title || '(无标题)'),
+                    h('div', { className: 'bbh-item-title' }, chat.title || '未命名聊天'),
+                    h('div', { className: 'bbh-item-sub' }, `${chat.client_label} · ${chat.chat_id}${chat.task_id !== 'default' ? ` · ${chat.task_id}` : ''}`),
                     h('div', { className: 'bbh-item-meta' },
-                      `session ${shortSession(chat.session_id)} · rules ${chat.fixed_rule_types.length ? chat.fixed_rule_types.join(',') : 'none'} · ${chat.updated_at ?? ''}`),
+                      [`会话 ${shortSession(chat.session_id)}`, chat.fixed_rule_types.length ? `规则 ${chat.fixed_rule_types.join('、')}` : '', chat.updated_at ? new Date(chat.updated_at).toLocaleString() : ''].filter(Boolean).join(' · ')),
                   ),
                   h('div', { className: 'bbh-item-actions' },
-                    h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => void viewRules(chat) }, '规则'),
+                    h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => void viewRules(chat) }, '查看规则'),
                     h('button', {
                       type: 'button',
                       className: 'bbh-btn secondary',
@@ -588,26 +596,6 @@ const { renderEndpoints } = require('./endpoints.js')
                   ),
                 )),
               ),
-          rules ? h('div', { className: 'bbh-box' },
-            h('div', { className: 'bbh-actions', style: { justifyContent: 'space-between' } },
-              h('h3', { className: 'bbh-card-title' }, `固定规则 · ${rules.client_label} / ${rules.chat_id}${rules.task_id !== 'default' ? ` / ${rules.task_id}` : ''}`),
-              h('div', { className: 'bbh-actions' },
-                h('button', {
-                  type: 'button',
-                  className: 'bbh-btn danger',
-                  disabled: busy || rules.fixed_rules.length === 0,
-                  onClick: () => {
-                    if (!window.confirm('清除当前作用域的固定规则？下次生成前需要重新同步。')) return
-                    void clearRules()
-                  },
-                }, '清除规则'),
-                h('button', { type: 'button', className: 'bbh-btn secondary', onClick: () => setRules(null) }, '关闭'),
-              ),
-            ),
-            rules.fixed_rules.length === 0
-              ? h('p', { className: 'bbh-note' }, '当前作用域没有固定规则。')
-              : h('pre', { className: 'bbh-pre' }, rules.fixed_rules.map(rule => `[${rule.type}] (${rule.role})\n${rule.text}`).join('\n\n')),
-          ) : null,
         ) : null,
 
         status === null ? null : tab === 'presets' ? h('div', { className: 'bbh-card' },
@@ -615,7 +603,7 @@ const { renderEndpoints } = require('./endpoints.js')
             h('h3', { className: 'bbh-card-title' }, '固定预设'),
             h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => void loadPresets() }, presets ? '刷新' : '读取'),
           ),
-          h('p', { className: 'bbh-note' }, '只对已确认的边界去重。未识别、部分匹配、多重匹配一律完整保留；配置只存 Hash，不存预设正文。'),
+          h('p', { className: 'bbh-note' }, '只对完整且唯一匹配的预设内容去重。其余内容原样保留。配置保存哈希和标记。'),
           presets === null
             ? h('p', { className: 'bbh-note' }, '尚未读取。')
             : [
@@ -632,7 +620,7 @@ const { renderEndpoints } = require('./endpoints.js')
                     h('div', { className: 'bbh-note' }, `${chat.last_status ?? '未知'}${chat.last_reason ? ` · ${chat.last_reason}` : ''} · 省 ${chat.deduped_chars ?? 0} / 原 ${chat.original_chars ?? 0} 字符`),
                   ),
                   h('div', { className: 'bbh-item-actions' },
-                    h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => void viewRules(chat) }, '规则'),
+                    h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => void viewRules(chat) }, '查看规则'),
                     h('button', {
                       type: 'button',
                       className: 'bbh-btn secondary',
@@ -641,10 +629,30 @@ const { renderEndpoints } = require('./endpoints.js')
                         if (!window.confirm(`清除 ${chat.client_label} / ${chat.chat_id} 的固定预设安装状态？下次生成会重新安装。`)) return
                         void action('reset_preset', { client_id: chat.client_id, chat_id: chat.chat_id, task_id: chat.task_id })
                       },
-                    }, '重新安装'),
+                    }, '重置安装状态'),
                   ),
                 )),
               ],
+        ) : null,
+
+        rules?.tab === tab ? h('div', { className: 'bbh-card', ref: rulesRef },
+          h('h3', { className: 'bbh-card-title' }, '固定规则'),
+          h('p', { className: 'bbh-item-sub' }, `${rules.client_label} / ${rules.chat_id}${rules.task_id !== 'default' ? ` / ${rules.task_id}` : ''}`),
+          rules.fixed_rules.length === 0
+            ? h('p', { className: 'bbh-note' }, '当前绑定没有固定规则。')
+            : h('pre', { className: 'bbh-pre' }, rules.fixed_rules.map(rule => `[${rule.type}] (${rule.role})\n${rule.text}`).join('\n\n')),
+          h('div', { className: 'bbh-actions' },
+            h('button', {
+              type: 'button',
+              className: 'bbh-btn danger',
+              disabled: busy || rules.fixed_rules.length === 0,
+              onClick: () => {
+                if (!window.confirm('清除当前绑定的固定规则？下次生成前需要重新同步。')) return
+                void clearRules()
+              },
+            }, '清除规则'),
+            h('button', { type: 'button', className: 'bbh-btn secondary', onClick: () => setRules(null) }, '关闭'),
+          ),
         ) : null,
 
         status === null ? null : tab === 'advanced' ? h('div', { className: 'bbh-box' },
@@ -657,11 +665,10 @@ const { renderEndpoints } = require('./endpoints.js')
                 h('span', null, '运行状态'), h('span', null, status.running ? '运行中' : '未运行'),
                 h('span', null, '监听'), h('span', null, status.active ? `${status.active.host}:${status.active.port}` : '未监听'),
                 h('span', null, '作用域 / 会话'), h('span', null, `${status.counts.scopes} / ${status.counts.sessions}`),
-                h('span', null, '状态文件'), h('span', null, status.settings_file),
+                h('span', null, '设置文件'), h('span', null, status.settings_file),
                 h('span', null, '日志'), h('span', null, status.log_file),
               ),
               h('div', { className: 'bbh-actions' },
-                h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => void load() }, '刷新状态'),
                 h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => void showLogPath() }, '显示日志路径'),
               ),
               h('details', { className: 'bbh-fold', open: true },
@@ -689,7 +696,7 @@ const { renderEndpoints } = require('./endpoints.js')
                   },
                 }, '停止桥接'),
                 h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy || status.running, onClick: () => void action('start') }, '启动桥接'),
-                h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => void action('restart') }, '重启桥接'),
+                restartPending ? null : h('button', { type: 'button', className: 'bbh-btn secondary', disabled: busy, onClick: () => void action('restart') }, '重启桥接'),
               ),
               h('div', { className: 'bbh-box' },
                 h('h4', { className: 'bbh-card-title' }, '清空全部绑定'),
